@@ -1,0 +1,80 @@
+"""Reviewer 실행 계층 (T-06-1~4 최소 slice) — read-only 검증.
+
+흐름: (ActionCandidate, 원본 Utterance) → 코드(결정적) 검증 → runner(LLM, 의미 검증) → review-result 계약 검증.
+- Reviewer는 후보를 고치지 않는다. 결과는 PASS/REJECT + 사유뿐이다.
+- 코드 검증이 실패하면 runner를 부르지 않고 REJECT한다. runner가 PASS를 내도 코드 REJECT를 뒤집지 못한다.
+- runner 출력이 계약 위반(수정안 같은 추가 필드 포함)이면 ReviewOutputError — 아무것도 통과시키지 않는다(fail-closed).
+- runner는 주입되는 callable(prompt:str) -> str(JSON) | dict.
+"""
+import json
+import re
+from pathlib import Path
+from typing import Callable, Mapping, Union
+
+from meeting_action_agent.contracts import CONTRACTS_DIR, SchemaValidationError, receive_agent_output
+
+AGENT_DEFINITION = Path(__file__).resolve().parents[3] / ".claude" / "agents" / "reviewer.md"
+_NO_EVIDENCE_NEEDED = {"확인 필요", "미정"}
+
+
+class ReviewOutputError(ValueError):
+    """Reviewer 출력이 JSON/계약/대상 일치 검증을 통과하지 못함. 판정으로 인정하지 않는다."""
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[\s\W_]+", "", s or "")
+
+
+def build_prompt(candidate: Mapping, utterance: Mapping, attempt: int = 0) -> str:
+    agent = AGENT_DEFINITION.read_text(encoding="utf-8")
+    schema = (CONTRACTS_DIR / "review-result.schema.json").read_text(encoding="utf-8")
+    return (
+        f"{agent}\n\n## 출력 스키마 (review-result.schema.json)\n{schema}\n\n"
+        f"## ActionCandidate\n{json.dumps(candidate, ensure_ascii=False, indent=1)}\n\n"
+        f"## 근거 원본 발언\n{json.dumps(dict(utterance), ensure_ascii=False, indent=1)}\n\n"
+        f"attempt={attempt}. 수정하지 말고 PASS/REJECT 판정 JSON 하나만 출력하라."
+    )
+
+
+def code_check(candidate: Mapping, utterance: Mapping) -> list:
+    """결정적 검증. 위반 사유 목록(빈 목록이면 통과)."""
+    reasons = []
+    text = utterance.get("text") or ""
+    pool = _norm(text) + "".join(_norm(q.get("text", "")) for q in candidate.get("extra_evidence") or [])
+    if candidate.get("timestamp") != utterance.get("timestamp"):
+        reasons.append({"code": "타임스탬프불일치", "detail": "후보 timestamp가 근거 발언과 다르다"})
+    if not _norm(candidate.get("evidence", "")) or _norm(candidate["evidence"]) not in _norm(text):
+        reasons.append({"code": "인용불일치", "detail": "evidence가 근거 발언 text의 부분 문자열이 아니다"})
+    assignee = candidate.get("assignee", "")
+    if assignee not in _NO_EVIDENCE_NEEDED and _norm(assignee) not in pool:
+        reasons.append({"code": "허위담당자", "detail": f"담당자 '{assignee}'가 근거 발언에 없다"})
+    due = candidate.get("due_date", "")
+    if due not in _NO_EVIDENCE_NEEDED and _norm(due) not in pool:
+        reasons.append({"code": "허위기한", "detail": f"기한 '{due}'가 근거 발언에 없다"})
+    if candidate.get("due_date_normalized") is not None:
+        reasons.append({"code": "허위환산날짜", "detail": "Analyst는 환산 날짜를 채울 수 없다(코드 담당)"})
+    return reasons
+
+
+def review_candidate(
+    candidate: Mapping,
+    utterance: Mapping,
+    runner: Callable[[str], Union[str, dict]],
+    *,
+    attempt: int = 0,
+) -> dict:
+    """후보 1건을 판정한다. 반환: review-result 계약을 만족하는 dict. 후보는 변경하지 않는다."""
+    ref = candidate["timestamp"]
+    failed = code_check(candidate, utterance)
+    if failed:
+        return {"target": {"type": "action", "ref": ref}, "verdict": "REJECT", "reasons": failed, "attempt": attempt}
+
+    raw = runner(build_prompt(candidate, utterance, attempt))
+    try:
+        result = json.loads(raw) if isinstance(raw, str) else raw
+        receive_agent_output("review-result", result)
+    except (json.JSONDecodeError, SchemaValidationError) as e:
+        raise ReviewOutputError(f"Reviewer 출력 거부: {e}") from e
+    if result["target"] != {"type": "action", "ref": ref}:
+        raise ReviewOutputError(f"Reviewer 대상 불일치: {result['target']} != action/{ref}")
+    return result

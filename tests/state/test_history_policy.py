@@ -215,3 +215,24 @@ def test_recomplete_with_the_old_approval_value_is_rejected(done_store, store_pa
     with pytest.raises(CompletionGuardError):
         done_store.change_status("A-001", Status.DONE, HUMAN, approved_by_human=dict(_OLD_APPROVAL))
     assert store_path.read_bytes() == before
+
+
+# ---------- T-03-6 보강: 일반 상태 변경·완료 전이의 history 기록 ----------
+
+def test_change_status_records_actor_evidence_note_and_keeps_past(store, followup_evidence):
+    before = store.get("A-001")["history"]
+
+    store.change_status("A-001", Status.DONE_CANDIDATE, AGENT, evidence=followup_evidence, note="완료 보고 확인")
+
+    history = store.get("A-001")["history"]
+    assert history[: len(before)] == before  # 과거 이력 보존
+    last = history[-1]
+    assert (last["actor"], last["from_status"], last["to_status"]) == ("Agent", "신규", "완료 후보")
+    assert last["evidence"] == followup_evidence and last["note"] == "완료 보고 확인" and last["at"]
+
+
+def test_completion_entry_records_approval_snapshot(candidate_store, approval):
+    candidate_store.change_status("A-001", Status.DONE, HUMAN, approved_by_human=approval, actor_name="홍길동")
+
+    last = candidate_store.get("A-001")["history"][-1]
+    assert last["approval"] == approval and last["actor_name"] == "홍길동"

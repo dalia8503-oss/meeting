@@ -6,6 +6,7 @@ T-03-10 초기 status, T-03-5 중복/remention(ActionStore), ActionStore.create.
 speaker·mentions는 ActionCandidate 필드가 아니라 변환 context(utterance, mentions)다.
 화자를 추측·생성하지 않으며, candidate.assigner 를 speaker 대신 쓰지 않는다.
 """
+import copy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Mapping, Optional
@@ -109,7 +110,7 @@ def convert_candidate(
             "due_date": due.due_date,
             "due_date_normalized": due.due_date_normalized,
             "evidence": utterance["text"],
-            "extra_evidence": [],
+            "extra_evidence": copy.deepcopy(candidate.get("extra_evidence") or []),
             "timestamp": utterance["timestamp"],
             "status": status,
             "flags": flags,
