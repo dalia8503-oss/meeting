@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/transcript.schema.json",
+  "title": "Transcript (녹취록 파일)",
+  "description": "발언 목록. 저장 위치: transcripts/original/<meeting_id>.json (신규 생성만 허용). 한 파일의 모든 발언은 같은 meeting_id이며 timestamp가 시간순이어야 하나, 이는 스키마로 표현할 수 없어 코드 검증기가 확인한다 (contracts/README.md).",
+  "type": "array",
+  "minItems": 1,
+  "items": { "$ref": "utterance.schema.json" }
+}

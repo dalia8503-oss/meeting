@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/review-result.schema.json",
+  "title": "Review result (Reviewer 판정)",
+  "description": "Reviewer는 PASS/REJECT와 사유만 낸다. 직접 수정하지 않는다 (0.CLAUDE.md, SPEC 6.3). 판정은 대상 1건 단위이다. reason code는 SPEC 6.3의 PASS/REJECT 기준을 코드화한 제안이다 (data-model.md 8장).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target", "verdict", "reasons", "attempt"],
+  "properties": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "type": {
+          "description": "검증 대상 (SPEC 6.3 ① Action ② 이행점검 판정 ③ 요약의 결정·미결)",
+          "enum": ["action", "followup", "summary_item"]
+        },
+        "ref": {
+          "description": "대상 식별자. action은 근거 timestamp 또는 action_id, followup은 action_id, summary_item은 text의 근거 timestamp.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "verdict": { "enum": ["PASS", "REJECT"] },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "detail"],
+        "properties": {
+          "code": {
+            "enum": [
+              "필수필드누락",
+              "타임스탬프불일치",
+              "화자불일치",
+              "인용불일치",
+              "허위담당자",
+              "허위기한",
+              "허위환산날짜",
+              "지시아님",
+              "근거없음",
+              "과소추출",
+              "관련성없음",
+              "판정비도출",
+              "완료설정"
+            ]
+          },
+          "detail": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "attempt": {
+      "description": "0 = 최초 검증, 1~2 = 재분석 후 재검증. 2회 재시도 후에도 REJECT면 사람 확인 큐 (SPEC 6.4).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "REJECT는 사유가 있어야 Action Manager에 전달할 수 있다 (SPEC 6.4).",
+      "if": { "properties": { "verdict": { "const": "REJECT" } }, "required": ["verdict"] },
+      "then": { "properties": { "reasons": { "minItems": 1 } } }
+    }
+  ]
+}

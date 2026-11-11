@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/utterance.schema.json",
+  "title": "Utterance (녹취 발언)",
+  "description": "A↔B 인터페이스. 기준: SPEC.md 5.1, 0.CLAUDE.md 데이터 인터페이스. 필드를 바꾸려면 SPEC.md를 먼저 수정한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meeting_id", "speaker", "timestamp", "text"],
+  "properties": {
+    "meeting_id": { "$ref": "common.schema.json#/$defs/MeetingId" },
+    "speaker": {
+      "description": "화자. speaker_map이 없으면 라벨 그대로 (예: SPEAKER_00).",
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": { "$ref": "common.schema.json#/$defs/Timestamp" },
+    "text": { "type": "string", "minLength": 1 },
+    "low_confidence": {
+      "description": "STT 신뢰도가 낮은 발언. 선택 필드, 기본 false (SPEC 5.1, US-01).",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

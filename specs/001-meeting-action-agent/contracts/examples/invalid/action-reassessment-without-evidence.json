@@ -1,0 +1,47 @@
+{
+  "action_id": "A-001",
+  "meeting_id": "20261110-01",
+  "assigner": "팀장",
+  "assignee": "김대리",
+  "task": "생산성 자료 수정",
+  "due_date": "목요일",
+  "due_date_normalized": "2026-11-12",
+  "evidence": "김대리는 생산성 자료 수정해서 목요일까지 공유해 주세요.",
+  "extra_evidence": [],
+  "timestamp": "00:05:10",
+  "status": "완료 후보",
+  "flags": [],
+  "field_source": {},
+  "approved_by_human": null,
+  "history": [
+    {
+      "at": "2026-11-10T15:30:00+09:00",
+      "actor": "Agent",
+      "from_status": null,
+      "to_status": "신규"
+    },
+    {
+      "at": "2026-11-17T09:40:00+09:00",
+      "actor": "Agent",
+      "from_status": "신규",
+      "to_status": "완료 후보",
+      "evidence": [
+        {
+          "meeting_id": "20261117-01",
+          "timestamp": "00:08:31",
+          "speaker": "김대리",
+          "text": "생산성 자료 수정해서 공유했습니다."
+        }
+      ]
+    },
+    {
+      "at": "2026-11-24T09:40:00+09:00",
+      "actor": "Agent",
+      "kind": "재판정",
+      "from_status": "완료 후보",
+      "to_status": "완료 후보",
+      "evidence": [],
+      "note": "상태는 사람의 판단을 기다리므로 유지. 추가 근거만 기록"
+    }
+  ]
+}

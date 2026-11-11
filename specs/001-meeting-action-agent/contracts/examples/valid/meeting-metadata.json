@@ -1,0 +1,17 @@
+{
+  "meeting_id": "20261110-01",
+  "meeting_date": "2026-11-10",
+  "title": "생산회의 (가상)",
+  "participants": [
+    "팀장",
+    "민수",
+    "김대리",
+    "박과장"
+  ],
+  "speaker_map": {
+    "SPEAKER_00": {
+      "name": "팀장",
+      "position": "팀장"
+    }
+  }
+}

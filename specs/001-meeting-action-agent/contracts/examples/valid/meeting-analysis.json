@@ -1,0 +1,38 @@
+{
+  "meeting_id": "20261110-01",
+  "key_discussions": [
+    {
+      "text": "생산성 자료 재확인 필요성 논의",
+      "evidence_timestamps": [
+        "00:12:31"
+      ]
+    }
+  ],
+  "decisions": [],
+  "open_issues": [],
+  "needs_confirmation": [
+    {
+      "text": "'다음번까지 확인'의 담당자와 기한 불명확",
+      "evidence_timestamps": [
+        "00:20:05"
+      ]
+    }
+  ],
+  "action_candidates": [
+    {
+      "instruction_type": "지시·요청",
+      "candidate": {
+        "meeting_id": "20261110-01",
+        "assigner": "팀장",
+        "assignee": "민수",
+        "task": "생산성 자료 재확인",
+        "due_date": "목요일 오전",
+        "due_date_normalized": "2026-11-12",
+        "evidence": "민수 씨 생산성 자료 다시 확인해서 목요일 오전까지 주세요.",
+        "timestamp": "00:12:31",
+        "status": "신규",
+        "flags": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "meeting_id": "20261117-01",
+  "action_id": "A-001",
+  "proposed_status": "완료 후보",
+  "confidence": "상",
+  "evidence": [
+    {
+      "meeting_id": "20261117-01",
+      "timestamp": "00:08:31",
+      "speaker": "김대리",
+      "text": "생산성 자료 수정해서 공유했습니다."
+    }
+  ],
+  "flags_to_add": [],
+  "reason": "담당자 본인이 업무명과 일치하는 완료형 발언('공유했습니다')을 했다."
+}

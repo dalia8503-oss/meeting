@@ -1,0 +1,14 @@
+{
+  "meeting_id": "20261110-01",
+  "assigner": "확인 필요",
+  "assignee": "확인 필요",
+  "task": "확인",
+  "due_date": "확인 필요",
+  "due_date_normalized": "2026-11-12",
+  "evidence": "이거 다음번까지 확인해야겠네요.",
+  "timestamp": "00:20:05",
+  "status": "확인 필요",
+  "flags": [
+    "지시여부애매"
+  ]
+}

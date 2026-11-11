@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/review-queue-item.schema.json",
+  "title": "Review queue item (사람 확인 큐 항목)",
+  "description": "재시도 2회 후에도 Reviewer가 REJECT한 건. 저장 위치: actions/review_queue/. 확정 Action List와 구분해 보이며, 유지/수정/폐기는 사람만 결정한다 (SPEC 6.4). 파일 구조는 제안이다.",
+  "type": "object",
+  "required": ["meeting_id", "target_type", "reject_history", "queued_at", "resolution"],
+  "properties": {
+    "meeting_id": { "$ref": "common.schema.json#/$defs/MeetingId" },
+    "target_type": { "enum": ["action", "followup"] },
+    "reject_history": {
+      "description": "최초 검증 + 재시도 2회 = REJECT 3건",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": {
+        "allOf": [
+          { "$ref": "review-result.schema.json" },
+          { "properties": { "verdict": { "const": "REJECT" } } }
+        ]
+      }
+    },
+    "queued_at": { "type": "string", "format": "date-time" },
+    "resolution": {
+      "description": "사람이 결정하기 전에는 null. 폐기도 사람만 한다.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision", "decided_by", "decided_at"],
+          "properties": {
+            "decision": { "enum": ["유지", "수정", "폐기"] },
+            "decided_by": { "type": "string", "minLength": 1 },
+            "decided_at": { "type": "string", "format": "date-time" },
+            "note": { "type": "string" }
+          }
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["candidate"],
+      "properties": {
+        "target_type": { "const": "action" },
+        "candidate": {
+          "allOf": [
+            { "$ref": "action-candidate.schema.json" },
+            {
+              "properties": {
+                "status": { "const": "확인 필요" },
+                "flags": { "contains": { "const": "Reviewer미통과" } }
+              }
+            }
+          ]
+        }
+      },
+      "not": { "required": ["followup"] }
+    },
+    {
+      "required": ["followup"],
+      "properties": {
+        "target_type": { "const": "followup" },
+        "followup": { "$ref": "followup-result.schema.json" }
+      },
+      "not": { "required": ["candidate"] }
+    }
+  ]
+}

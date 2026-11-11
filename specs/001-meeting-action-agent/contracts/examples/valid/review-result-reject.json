@@ -1,0 +1,14 @@
+{
+  "target": {
+    "type": "action",
+    "ref": "00:20:05"
+  },
+  "verdict": "REJECT",
+  "reasons": [
+    {
+      "code": "허위담당자",
+      "detail": "근거 발언에 담당자가 없는데 '민수'가 지정되었다."
+    }
+  ],
+  "attempt": 0
+}

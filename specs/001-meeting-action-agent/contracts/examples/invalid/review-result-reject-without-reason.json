@@ -1,0 +1,9 @@
+{
+  "target": {
+    "type": "action",
+    "ref": "00:20:05"
+  },
+  "verdict": "REJECT",
+  "reasons": [],
+  "attempt": 0
+}

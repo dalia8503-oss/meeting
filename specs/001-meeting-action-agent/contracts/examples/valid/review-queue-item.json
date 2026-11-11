@@ -1,0 +1,65 @@
+{
+  "meeting_id": "20261110-01",
+  "target_type": "action",
+  "candidate": {
+    "meeting_id": "20261110-01",
+    "assigner": "확인 필요",
+    "assignee": "확인 필요",
+    "task": "확인",
+    "due_date": "확인 필요",
+    "due_date_normalized": null,
+    "evidence": "이거 다음번까지 확인해야겠네요.",
+    "timestamp": "00:20:05",
+    "status": "확인 필요",
+    "flags": [
+      "지시여부애매",
+      "Reviewer미통과"
+    ]
+  },
+  "reject_history": [
+    {
+      "target": {
+        "type": "action",
+        "ref": "00:20:05"
+      },
+      "verdict": "REJECT",
+      "reasons": [
+        {
+          "code": "근거없음",
+          "detail": "근거 발언과 업무가 일치하지 않는다."
+        }
+      ],
+      "attempt": 0
+    },
+    {
+      "target": {
+        "type": "action",
+        "ref": "00:20:05"
+      },
+      "verdict": "REJECT",
+      "reasons": [
+        {
+          "code": "근거없음",
+          "detail": "근거 발언과 업무가 일치하지 않는다."
+        }
+      ],
+      "attempt": 1
+    },
+    {
+      "target": {
+        "type": "action",
+        "ref": "00:20:05"
+      },
+      "verdict": "REJECT",
+      "reasons": [
+        {
+          "code": "근거없음",
+          "detail": "근거 발언과 업무가 일치하지 않는다."
+        }
+      ],
+      "attempt": 2
+    }
+  ],
+  "queued_at": "2026-11-10T15:40:00+09:00",
+  "resolution": null
+}

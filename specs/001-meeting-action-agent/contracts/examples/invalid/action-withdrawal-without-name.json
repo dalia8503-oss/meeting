@@ -1,0 +1,76 @@
+{
+  "action_id": "A-001",
+  "meeting_id": "20261110-01",
+  "assigner": "팀장",
+  "assignee": "김대리",
+  "task": "생산성 자료 수정",
+  "due_date": "목요일",
+  "due_date_normalized": "2026-11-12",
+  "evidence": "김대리는 생산성 자료 수정해서 목요일까지 공유해 주세요.",
+  "extra_evidence": [],
+  "timestamp": "00:05:10",
+  "status": "진행중",
+  "flags": [],
+  "field_source": {},
+  "approved_by_human": {
+    "approver": "홍길동",
+    "approved_at": "2026-11-17T10:00:00+09:00",
+    "evidence": {
+      "meeting_id": "20261117-01",
+      "timestamp": "00:08:31"
+    }
+  },
+  "history": [
+    {
+      "at": "2026-11-10T15:30:00+09:00",
+      "actor": "Agent",
+      "from_status": null,
+      "to_status": "신규"
+    },
+    {
+      "at": "2026-11-17T09:40:00+09:00",
+      "actor": "Agent",
+      "from_status": "신규",
+      "to_status": "완료 후보",
+      "evidence": [
+        {
+          "meeting_id": "20261117-01",
+          "timestamp": "00:08:31",
+          "speaker": "김대리",
+          "text": "생산성 자료 수정해서 공유했습니다."
+        }
+      ]
+    },
+    {
+      "at": "2026-11-17T10:00:00+09:00",
+      "actor": "사람",
+      "actor_name": "홍길동",
+      "from_status": "완료 후보",
+      "to_status": "완료",
+      "approval": {
+        "approver": "홍길동",
+        "approved_at": "2026-11-17T10:00:00+09:00",
+        "evidence": {
+          "meeting_id": "20261117-01",
+          "timestamp": "00:08:31"
+        }
+      },
+      "note": "[완료] 선택"
+    },
+    {
+      "at": "2026-11-18T09:00:00+09:00",
+      "actor": "사람",
+      "from_status": "완료",
+      "to_status": "진행중",
+      "approval": {
+        "approver": "홍길동",
+        "approved_at": "2026-11-17T10:00:00+09:00",
+        "evidence": {
+          "meeting_id": "20261117-01",
+          "timestamp": "00:08:31"
+        }
+      },
+      "note": "완료 철회: 공유 자료에 오류 발견"
+    }
+  ]
+}

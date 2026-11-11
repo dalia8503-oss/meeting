@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/followup-result.schema.json",
+  "title": "Follow-up result (이행점검 판정)",
+  "description": "/check-actions에서 Action Manager가 Action 1건에 대해 내는 이행 판정. 기준: SPEC 5.6, US-04. SPEC은 판정 조건만 정의하며 이 구조는 제안이다 (data-model.md 8장). Agent는 '완료'를 낼 수 없고 '완료 후보'까지만 가능하다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "meeting_id",
+    "action_id",
+    "proposed_status",
+    "confidence",
+    "evidence",
+    "flags_to_add",
+    "reason"
+  ],
+  "properties": {
+    "meeting_id": {
+      "description": "점검에 사용한 신규 회의. Action이 발생한 이전 회의가 아니다.",
+      "$ref": "common.schema.json#/$defs/MeetingId"
+    },
+    "action_id": { "type": "string", "pattern": "^A-[0-9]{3,}$" },
+    "proposed_status": {
+      "enum": ["완료 후보", "진행중", "미완료", "확인 필요"]
+    },
+    "confidence": { "$ref": "common.schema.json#/$defs/Confidence" },
+    "evidence": {
+      "description": "신규 회의의 근거 발언. 언급 없음이면 빈 배열 (확인 필요 + 근거 없음). 상충 발언이면 두 근거를 모두 첨부.",
+      "type": "array",
+      "items": { "$ref": "common.schema.json#/$defs/EvidenceQuote" }
+    },
+    "flags_to_add": {
+      "type": "array",
+      "items": { "enum": ["기한경과", "기한변경제안"] },
+      "uniqueItems": true
+    },
+    "proposed_due_date": {
+      "description": "기한변경제안의 새 기한 원문. 기존 due_date를 덮어쓰지 않고 제안으로만 둔다 (SPEC 5.6).",
+      "type": "string",
+      "minLength": 1
+    },
+    "reason": {
+      "description": "판정 사유. 발언 내용에서 어떻게 도출했는지 설명한다.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "완료 후보·진행중·미완료는 근거 발언이 있어야 한다 (SPEC US-04 '근거 없는 판정' 실패).",
+      "if": {
+        "properties": { "proposed_status": { "enum": ["완료 후보", "진행중", "미완료"] } },
+        "required": ["proposed_status"]
+      },
+      "then": { "properties": { "evidence": { "minItems": 1 } } }
+    },
+    {
+      "$comment": "확신도 하는 '확인 필요' (SPEC 5.6).",
+      "if": { "properties": { "confidence": { "const": "하" } }, "required": ["confidence"] },
+      "then": { "properties": { "proposed_status": { "const": "확인 필요" } } }
+    },
+    {
+      "$comment": "기한변경제안에는 새 기한 원문이 있어야 한다 (SPEC 5.6).",
+      "if": {
+        "properties": { "flags_to_add": { "contains": { "const": "기한변경제안" } } },
+        "required": ["flags_to_add"]
+      },
+      "then": { "required": ["proposed_due_date"] }
+    }
+  ]
+}

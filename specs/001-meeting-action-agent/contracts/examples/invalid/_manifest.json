@@ -1,0 +1,23 @@
+{
+  "utterance-bad-timestamp.json": "utterance.schema.json",
+  "utterance-extra-field.json": "utterance.schema.json",
+  "utterance-missing-text.json": "utterance.schema.json",
+  "action-completed-without-approval.json": "action.schema.json",
+  "action-agent-completed-history.json": "action.schema.json",
+  "action-normalized-without-basis.json": "action.schema.json",
+  "action-candidate-status-completed.json": "action-candidate.schema.json",
+  "action-candidate-human-fields.json": "action-candidate.schema.json",
+  "action-candidate-normalized-without-basis.json": "action-candidate.schema.json",
+  "action-candidate-conditional-without-note.json": "action-candidate.schema.json",
+  "action-candidate-ambiguous-but-new.json": "action-candidate.schema.json",
+  "followup-completed-low-confidence.json": "followup-result.schema.json",
+  "followup-status-completed.json": "followup-result.schema.json",
+  "followup-no-evidence-but-not-confirm.json": "followup-result.schema.json",
+  "followup-due-change-without-new-date.json": "followup-result.schema.json",
+  "review-result-reject-without-reason.json": "review-result.schema.json",
+  "review-result-attempt-over-limit.json": "review-result.schema.json",
+  "action-human-creation.json": "action.schema.json",
+  "action-withdrawal-without-name.json": "action.schema.json",
+  "action-completed-history-without-approval-snapshot.json": "action.schema.json",
+  "action-reassessment-without-evidence.json": "action.schema.json"
+}

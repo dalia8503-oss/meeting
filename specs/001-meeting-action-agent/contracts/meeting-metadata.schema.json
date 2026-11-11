@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/meeting-metadata.schema.json",
+  "title": "Meeting metadata (회의 메타데이터)",
+  "description": "녹음 업로드 시 입력 (SPEC 5.1). meeting_date는 기한 환산 기준이므로 필수. speaker_map 값의 하위 필드(name, position)는 SPEC이 '실명·직책'만 정의해서 붙인 제안이다 (data-model.md 8장).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meeting_id", "meeting_date"],
+  "properties": {
+    "meeting_id": { "$ref": "common.schema.json#/$defs/MeetingId" },
+    "meeting_date": { "$ref": "common.schema.json#/$defs/Date" },
+    "title": { "type": "string" },
+    "participants": {
+      "description": "참석자 목록. 담당자 이름 대조용 (동명이인 판단, 참석자외 플래그).",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "speaker_map": {
+      "description": "화자 라벨 → 실명·직책. 없으면 라벨을 그대로 쓰고 지시자는 '확인 필요'.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "position": { "type": "string" }
+        }
+      }
+    }
+  }
+}

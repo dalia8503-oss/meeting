@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://meeting-action-agent.example/contracts/common.schema.json",
+  "title": "Common definitions",
+  "description": "여러 계약이 공유하는 정의. 기준: SPEC.md 5장.",
+  "$defs": {
+    "Timestamp": {
+      "description": "HH:MM:SS, 발언 시작 시점. 녹음 시작 기준 경과시간이며 시각(time-of-day)이 아니다: HH는 00~99(24 이상 허용), MM·SS는 00~59 (SPEC 5.1)",
+      "type": "string",
+      "pattern": "^[0-9]{2}:[0-5][0-9]:[0-5][0-9]$"
+    },
+    "Date": {
+      "description": "YYYY-MM-DD",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "MeetingId": {
+      "description": "예: 20261110-01. SPEC은 예시만 제시하므로 형식은 제한하지 않는다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "NeedsConfirmation": {
+      "description": "담당자·기한이 불명확할 때의 값 (SPEC 5.4). 화면 라벨은 '담당자 확인 필요'.",
+      "const": "확인 필요"
+    },
+    "Status": {
+      "description": "Action 상태 (SPEC 5.3). 이모지는 표시용이므로 값에 넣지 않는다.",
+      "enum": ["신규", "진행중", "완료 후보", "완료", "미완료", "확인 필요"]
+    },
+    "AgentSettableStatus": {
+      "description": "Agent가 설정할 수 있는 상태. '완료'는 사람만 설정한다 (SPEC 5.3, 9장).",
+      "enum": ["신규", "진행중", "완료 후보", "미완료", "확인 필요"]
+    },
+    "Flag": {
+      "description": "Action 플래그 (SPEC 5.2, 5.4, 5.5, 5.6, 6.4)",
+      "enum": [
+        "조건부",
+        "지시여부애매",
+        "Reviewer미통과",
+        "기한경과",
+        "기한변경제안",
+        "팀지칭",
+        "공동",
+        "참석자외"
+      ]
+    },
+    "FieldSource": {
+      "description": "필드 값의 출처 (SPEC 2장 원칙 8, 5.2)",
+      "enum": ["녹취", "사람 보강"]
+    },
+    "Actor": {
+      "description": "상태 변경 주체",
+      "enum": ["Agent", "사람"]
+    },
+    "Confidence": {
+      "description": "이행 판정 확신도 3단계 (SPEC 5.6)",
+      "enum": ["상", "중", "하"]
+    },
+    "EvidenceQuote": {
+      "description": "녹취 근거 인용. Reviewer 코드 검증기가 실제 발언과 대조한다 (SPEC 6.3).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["meeting_id", "timestamp", "speaker", "text"],
+      "properties": {
+        "meeting_id": { "$ref": "#/$defs/MeetingId" },
+        "timestamp": { "$ref": "#/$defs/Timestamp" },
+        "speaker": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

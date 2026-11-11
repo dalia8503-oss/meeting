@@ -1,0 +1,14 @@
+{
+  "meeting_id": "20261110-01",
+  "assigner": "팀장",
+  "assignee": "박과장",
+  "task": "견적 검토",
+  "due_date": "확인 필요",
+  "due_date_normalized": null,
+  "evidence": "견적 오면 검토합시다.",
+  "timestamp": "00:15:00",
+  "status": "확인 필요",
+  "flags": [
+    "조건부"
+  ]
+}
