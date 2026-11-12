@@ -50,7 +50,7 @@ def test_normal_candidate_creates_action(store):
     res = _run(store, cand)
     assert [o.kind for o in res.outcomes] == ["created"]
     a = store.get("A-001")
-    assert (a["assignee"], a["due_date"], a["due_date_normalized"]) == ("민수", "목요일 오전", "2026-11-12")
+    assert (a["assignee"], a["due_date"], a["due_date_normalized"]) == ("민수", "목요일 오전까지", "2026-11-12")  # 원문 복원(Step A)
     assert a["status"] == "신규" and a["flags"] == [] and a["extra_evidence"] == []
     assert a["evidence"] == TEXT and a["timestamp"] == "00:12:31"
     assert a["field_source"] == {} and a["approved_by_human"] is None
@@ -136,3 +136,18 @@ def test_missing_or_conflicting_utterance_raises_and_stores_nothing(store, utt):
     with pytest.raises(ConversionContextError):
         convert_candidate(_cand(), utterance=utt, metadata=_meta(), store=store)
     assert store.load_all() == []
+
+
+def test_due_raw_restored_from_utterance_and_relative_week_normalized(store):
+    text = "박 대리님이 다음주 화요일까지 검토 의견 정리해서 공유해 주세요."
+    _run(store, _cand(assignee="민수", due_date="다음주 화요일", evidence=text),
+         utt=_utt(text=text), metadata=_meta(date="2026-11-17"))
+    a = store.get("A-001")
+    assert (a["due_date"], a["due_date_normalized"]) == ("다음주 화요일까지", "2026-11-24")
+
+
+def test_due_raw_not_invented_when_not_in_utterance(store):
+    text = "민수 씨 가능하면 다음주쯤 자료 확인해 주세요."
+    _run(store, _cand(due_date="다음주 화요일", evidence=text), utt=_utt(text=text))
+    a = store.get("A-001")
+    assert a["due_date"] == "다음주 화요일"  # 발언에 없는 표현을 만들지 않는다

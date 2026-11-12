@@ -13,7 +13,7 @@ from typing import Mapping, Optional
 
 from meeting_action_agent.contracts import receive_agent_output
 from meeting_action_agent.rules.assignee import decide_assignee_flags
-from meeting_action_agent.rules.due_date import decide_due_date
+from meeting_action_agent.rules.due_date import decide_due_date, restore_due_raw
 from meeting_action_agent.rules.status import decide_initial_status
 
 
@@ -72,7 +72,7 @@ def convert_candidate(
     flag_result = decide_assignee_flags(
         utterance_text=utterance["text"], speaker=utterance["speaker"], mentions=names, metadata=metadata
     )
-    due = decide_due_date(raw=candidate["due_date"], meeting_date=metadata["meeting_date"])
+    due = decide_due_date(raw=restore_due_raw(candidate["due_date"], utterance["text"]), meeting_date=metadata["meeting_date"])
     meeting_id = candidate["meeting_id"]
     quote = {
         "meeting_id": meeting_id, "timestamp": utterance["timestamp"],

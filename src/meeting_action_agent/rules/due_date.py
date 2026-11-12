@@ -3,8 +3,9 @@
 원문(`due_date`)은 항상 보존하고, `due_date_normalized`는 이 모듈이 규칙으로만 계산한다 (LLM 금지).
 환산 대상 (MVP, CHK019 결정):
   - 요일 단독: 회의일 이후 처음 오는 해당 요일 (회의일과 같은 요일은 null)
+  - 이번주/다음주 + 요일: 월~일 주 기준 해당 주의 그 요일 (이번주는 지난 요일도 문자 그대로)
   - 연도 없는 월/일: 회의일의 연도 사용, 회의일보다 과거면 null (다음 해 이월·보정 없음)
-그 외 표현(이번/다음 주 + 요일, 범위, "다음 회의까지", "N일 후" 등)은 null. 공휴일·영업일 계산 없음.
+그 외 표현(범위, "다음 회의까지", "N일 후" 등)은 null. 공휴일·영업일 계산 없음.
 """
 import re
 from dataclasses import dataclass
@@ -21,7 +22,29 @@ _UNINTERPRETABLE = frozenset({"다음번", "조만간", "빨리"})  # 닫힌 목
 # 시각·조사 표현은 원문에만 남기고 환산 판단에서는 제거한다.
 _NOISE_RE = re.compile(r"까지|오전|오후|\d{1,2}시(\d{1,2}분)?|\s+")
 _WEEKDAY_ONLY_RE = re.compile(rf"^([{_WEEKDAYS}])요일$")
+_WEEK_WEEKDAY_RE = re.compile(rf"^(이번|다음)주([{_WEEKDAYS}])요일$")  # 공백은 _NOISE_RE가 제거
 _MONTH_DAY_RE = re.compile(r"^(\d{1,2})(?:/|월)(\d{1,2})일?$")
+
+
+def restore_due_raw(llm_due: Optional[str], utterance_text: str) -> Optional[str]:
+    """LLM이 '까지'를 떼고 준 기한 문자열을 근거 발언의 원문 표현으로 복원한다 (정규화 아님).
+
+    발언에서 llm_due가 정확히 한 번 나오고 바로 뒤에 '까지'가 붙어 있을 때만 '까지'를 되살린다.
+    발언에 없거나, 여러 번 나오거나, 다른 조사면 llm_due를 그대로 돌려준다. 새 표현은 만들지 않는다.
+    """
+    if llm_due is None or not llm_due.strip():
+        return llm_due
+    due = llm_due.strip()
+    if due in (PENDING, NEEDS_CONFIRMATION) or due.endswith("까지"):
+        return llm_due
+    pattern = r"\s+".join(re.escape(tok) for tok in due.split())
+    matches = list(re.finditer(pattern, utterance_text))
+    if len(matches) != 1:
+        return llm_due
+    m = matches[0]
+    if utterance_text.startswith("까지", m.end()):
+        return utterance_text[m.start():m.end() + 2]
+    return llm_due
 
 
 class DueDateBasis(str, Enum):
@@ -62,6 +85,14 @@ def decide_due_date(*, raw: Optional[str], meeting_date: str) -> DueDateDecision
         if delta:  # 0 = 회의일과 같은 요일 -> 환산하지 않음
             return DueDateDecision(raw, (base + timedelta(days=delta)).isoformat(), DueDateBasis.NORMALIZED)
         return DueDateDecision(raw, None, DueDateBasis.UNNORMALIZED)
+
+    m = _WEEK_WEEKDAY_RE.match(core)
+    if m:  # 주 기준 월~일. 이번주는 이미 지난 요일이어도 문자 그대로(다음주로 넘기지 않음)
+        monday = base - timedelta(days=base.weekday())
+        if m.group(1) == "다음":
+            monday += timedelta(days=7)
+        target = monday + timedelta(days=_WEEKDAYS.index(m.group(2)))
+        return DueDateDecision(raw, target.isoformat(), DueDateBasis.NORMALIZED)
 
     m = _MONTH_DAY_RE.match(core)
     if m:
