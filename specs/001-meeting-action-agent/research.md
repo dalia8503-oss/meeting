@@ -12,9 +12,9 @@
 
 | # | 질문 | 잠정 결론 | 결정 시점 | SPEC 상태 |
 |---|---|---|---|---|
-| R-01 | STT 모델·실행 방식 | Whisper 계열 로컬 실행으로 시작, 후보 2~3개 벤치마크 | P7 착수 전 | 미결 |
+| R-01 | STT 모델·실행 방식 | **MVP: Gemini Audio**(2026-11-12 결정). Whisper 계열 로컬 비교는 후속 benchmark | P7 착수 전 | MVP 결정 / 정식 미결 |
 | R-02 | 화자 구분 방식 | Whisper + 별도 diarization, 매핑 실패 시 라벨 유지 | P7 착수 전 | 미결 |
-| R-03 | `low_confidence` 판정 기준 | Whisper 세그먼트 지표 기반으로 시작, 튜닝 | P7 | 미결 |
+| R-03 | `low_confidence` 판정 기준 | Whisper 세그먼트 지표 기반으로 시작, 튜닝. Gemini Audio MVP는 지표 없음 → 근거 있을 때만 표시 | P7 | 미결 |
 | R-04 | 이행 매칭 확신도 | LLM 3단계 판정 + 보수적 기본값. 수치 임계값은 보류 | P5 이후 | 미결 |
 | R-05 | Agent(LLM) 호출 방식 | `.claude/agents`는 프롬프트 정본, 파이프라인은 Python에서 호출 (미확정) | P2 착수 전 | 신규 |
 | R-06 | 기한 환산 구현 | 원문은 LLM이 추출, 환산은 코드 | P1 | 신규 |
@@ -84,11 +84,11 @@
 
 ## R-05. Agent(LLM) 호출 방식
 
-**배경**: 0.CLAUDE.md는 `.claude/agents/`(meeting-analyst, action-manager, reviewer)와 `.claude/skills/`(analyze-meeting, check-actions)를 정의한다. 한편 Dashboard는 Streamlit 웹 앱이며 시연은 "업로드 → … → 승인"을 이어서 보여야 하고, 정확도 테스트는 pytest에서 자동 실행되어야 한다.
+**배경**: 0.CLAUDE.md는 `.claude/agents/`(meeting-analyst, action-manager, reviewer)와 `.claude/skills/`(analyze-meeting, check-actions)를 정의한다. 한편 Dashboard는 React + FastAPI 웹 앱이며 시연은 "업로드 → … → 승인"을 이어서 보여야 하고, 정확도 테스트는 pytest에서 자동 실행되어야 한다.
 
 | 방식 | 장점 | 우려 |
 |---|---|---|
-| A. Claude Code 안에서만 실행 (skill → subagent) | 0.CLAUDE.md 구조 그대로, 도구 권한으로 Reviewer 읽기 전용 강제 | Streamlit 앱·pytest에서 호출하기 어려움 |
+| A. Claude Code 안에서만 실행 (skill → subagent) | 0.CLAUDE.md 구조 그대로, 도구 권한으로 Reviewer 읽기 전용 강제 | FastAPI·pytest에서 호출하기 어려움 |
 | B. Python에서 Anthropic API 직접 호출 | 앱·테스트에서 자동화 쉬움, 구조화 출력 사용 가능 | Reviewer 읽기 전용을 도구 권한이 아니라 코드 설계로 보장해야 함, `.claude/agents` 정의와 중복 |
 | C. Python에서 Claude Code 헤드리스 실행 (`claude -p` 등) 또는 Agent SDK | `.claude/agents` 정의를 재사용하면서 프로그램에서 호출 | 실행 환경·지연·비용 구조 확인 필요 |
 
@@ -128,7 +128,7 @@
 |---|---|---|
 | `.claude/settings.json` deny | Claude Code의 Edit/Write 등 | 신규/기존을 구분 못 할 수 있음. Bash(`rm`, 리다이렉션, `python -c`)는 별도 규칙 필요 |
 | PreToolUse Hook | Claude Code의 도구 호출 전 | 대상 파일 존재 여부를 검사해 "기존 파일이면 차단, 신규면 통과"를 구현 가능. Hook이 보는 범위(Bash 명령 파싱 등)의 한계 |
-| 애플리케이션 코드 | 파이프라인이 쓰는 경로 | Claude Code 밖(Python 프로세스, Streamlit)의 쓰기는 Hook이 보지 못함. 배타적 생성(`open(path, "x")`)으로 덮어쓰기 방지 |
+| 애플리케이션 코드 | 파이프라인이 쓰는 경로 | Claude Code 밖(Python 프로세스, FastAPI)의 쓰기는 Hook이 보지 못함. 배타적 생성(`open(path, "x")`)으로 덮어쓰기 방지 |
 | 파일 속성 | 생성 직후 읽기 전용 지정 | Windows `attrib +R`/POSIX 권한. 의도적 해제는 막지 못함 |
 | 해시 기록 | 변경 탐지 | 사전 차단이 아니라 사후 탐지. US-01 실패 조건("업로드 후 원본 해시 변경")과 부합 |
 

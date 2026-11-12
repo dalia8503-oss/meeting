@@ -43,7 +43,7 @@ python -m pip install "jsonschema>=4.18" pytest
 
 가상환경이 PowerShell 스크립트 실행 정책 때문에 활성화되지 않으면, 활성화 없이 `.venv\Scripts\python.exe`를 직접 호출한다.
 
-STT(Whisper 계열), 화자 구분, Streamlit, LLM 호출 라이브러리는 선택이 끝나지 않아 목록에 넣지 않았다 (`research.md` R-01, R-02, R-05).
+STT(Whisper 계열), 화자 구분, LLM 호출 라이브러리는 선택이 끝나지 않아 목록에 넣지 않았다 (`research.md` R-01, R-02, R-05).
 
 ## 4. 계약 검증 실행 [가능]
 
@@ -105,7 +105,7 @@ SPEC 15장의 시연 시나리오이다. 아래 흐름이 구현되면 실행 �
 
 **1단계 — 신규 회의**
 1. 회의 메타데이터를 입력한다. `meeting_id`, **`meeting_date`(필수, 기한 환산 기준)**, 선택으로 `title`, `participants`, `speaker_map`.
-2. 녹음(MP3/WAV, 한국어, 최대 2시간)을 올리거나, 개발 중에는 가짜 녹취 JSON을 입력한다.
+2. 녹음(MP3/WAV/M4A, 한국어, 최대 2시간)을 올리거나, 개발 중에는 가짜 녹취 JSON을 입력한다.
 3. 회의 요약(핵심 논의·결정·미결)과 지시 후보가 만들어진다.
 4. Reviewer가 모든 Action을 녹취 원문과 대조한다. 통과한 Action은 Action List에 저장되고, 2회 재시도 후에도 반려된 건은 **사람 확인 큐**로 간다.
 

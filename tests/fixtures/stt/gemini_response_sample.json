@@ -1,0 +1,13 @@
+{
+  "_comment": "손으로 작성한 고정 STT 응답 fixture (실제 Gemini 출력 아님). tts_meeting_001.answer.json의 시작 시각을 Gemini 스타일(MM:SS)로 적었다.",
+  "segments": [
+    {"speaker": "speaker_1", "timestamp": "00:00", "text": "자, 그럼 회의를 시작하겠습니다. 오늘은 지난주 진행 상황부터 확인하겠습니다."},
+    {"speaker": "speaker_2", "timestamp": "00:08", "text": "네, 지금 도면 작업을 진행하고 있습니다."},
+    {"speaker": "speaker_1", "timestamp": "00:12", "text": "김대리, 금요일까지 도면 수정해서 공유해주세요."},
+    {"speaker": "speaker_2", "timestamp": "00:18", "text": "네, 알겠습니다."},
+    {"speaker": "speaker_3", "timestamp": "00:20", "text": "다음 회의에서는 품질 문제도 다뤄보면 어떨까요?"},
+    {"speaker": "speaker_4", "timestamp": "00:25", "text": "도면 검토는 끝났나요?"},
+    {"speaker": "speaker_1", "timestamp": "00:28", "text": "좋은 의견 감사합니다."},
+    {"speaker": "speaker_1", "timestamp": "00:32", "text": "그럼 오늘 회의는 여기서 마치겠습니다."}
+  ]
+}

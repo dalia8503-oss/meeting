@@ -16,12 +16,12 @@ LLM(Agent)은 추출·판단을 맡고, 근거 존재 검증·상태 전이·완
 | 항목 | 내용 | 상태 |
 |---|---|---|
 | 언어 / 테스트 | Python, pytest | 확정 (SPEC 12장) |
-| STT | Whisper 계열 | 확정. 모델·버전은 미결 |
-| 화자 구분 | Whisper와 별도 처리 | **미결** (SPEC 17장) |
+| STT | MVP: Gemini Audio / 후속: Whisper 계열(로컬) | MVP 결정(T-00-1). 로컬 Whisper는 보안 검토 단계 대안 |
+| 화자 구분 | MVP: Gemini `speaker_N` 라벨, 실명은 `speaker_map`으로만 | MVP 결정. 정식 방식은 **미결** (SPEC 17장) |
 | Agent 실행 | Claude Code 서브에이전트(`.claude/agents/`) + Skill(`.claude/skills/`) | 확정 (0.CLAUDE.md) |
 | 저장 | JSON 파일이 정본(`actions/`, `meetings/`), Markdown은 파생물 | 잠정 확정 |
-| Dashboard | Streamlit 등 웹 앱 | 확정. 프레임워크는 Streamlit으로 가정 |
-| 입력 사양 | MP3/WAV, 한국어, 최대 2시간 | 잠정 확정 |
+| Dashboard | React 18 + TypeScript + Vite / FastAPI | 확정(Streamlit 대체). API: `/api/health`, `/api/meetings`, `/api/meetings/{id}/analyze`, `/api/meetings/{id}`, `/api/meetings/{id}/actions`, `/api/actions/{id}/review`, `/api/meetings/{id}/speaker-map` |
+| 입력 사양 | MP3/WAV/M4A, 한국어, 최대 2시간 | 잠정 확정 |
 | 인증 | 승인자 이름 입력만 | 잠정 확정 |
 | 시간이 남으면 | SQLite, MCP, Excel 내보내기 | 선택 (tasks 14장) |
 
@@ -91,7 +91,9 @@ src/meeting_action_agent/
 ├─ agents/        # Analyst / Action Manager / Reviewer 호출 어댑터 (LLM 경계)
 ├─ review/        # 코드 검증기, REJECT 루프, 큐 적재
 ├─ followup/      # 이전 Action 로드·필터, 이행 비교
-└─ app/           # Streamlit Dashboard
+└─ api/           # FastAPI Backend (app, routes, service, schemas, mode)
+
+frontend/         # React 18 + TypeScript + Vite Dashboard (저장소 루트)
 ```
 
 LLM 호출은 `agents/` 인터페이스 뒤에 둔다. 단위 테스트는 고정 응답(fixture)으로, 정확도 측정(재현율·상태 일치율)은 실제 호출로 분리해 실행한다.

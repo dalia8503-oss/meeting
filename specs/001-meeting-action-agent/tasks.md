@@ -11,7 +11,7 @@
 
 **P0 완료 기준**: T-00-5·T-00-6(가상 회의·정답표)이 확정되고, T-00-9의 보호 방식 결정이 끝나며, T-00-1의 "P2 착수 전" 결정이 끝난 상태.
 
-- [ ] T-00-1 SPEC 17장 미결 항목과 신규 결정 항목을 결정하고 SPEC에 반영 (SPEC 수정은 사용자 승인 후)
+- [ ] T-00-1 (MVP 부분 반영 2026-11-12: STT=Gemini Audio, 화자=`speaker_N`+사람 제공 `speaker_map`, `low_confidence` 기준은 미결) SPEC 17장 미결 항목과 신규 결정 항목을 결정하고 SPEC에 반영 (SPEC 수정은 사용자 승인 후)
   - 화자 구분 방식, STT 모델·버전 + `low_confidence` 판정 기준 — **P7 착수 전**
   - **Agent(LLM) 호출 방식 A/B/C (research R-05)** — **P2 착수 전**. T-00-14의 전제
   - 이전 Action List 지정 방식(UI 선택 vs 파일 경로)과 Action List 파일 단위(회의별 vs 누적) — **P4 착수 전**
@@ -27,25 +27,25 @@
 - [x] T-00-10 **문서 위치 정리**: 위치는 `specs/001-.../` 유지로 결정(2026-11-11). 0.CLAUDE.md, plan.md, checklists, contracts/README, quickstart, data-model, research의 참조를 새 위치 기준으로 수정함
 - [ ] T-00-11 **SPEC 보완 반영 요청**: data-model.md 8장의 임시 결정 10건과 checklists/requirements.md의 "SPEC 수정 필요" 13건(CHK011~015, 019~024, 045, 047)을 정리해 사용자 승인 후 SPEC 5~6장에 반영. 특히 근거 발언 `speaker` 필드(CHK011)는 T-06-2의 선행 조건
 - [ ] T-00-12 녹취·메타데이터 로더: 스키마 검증(`contracts/`) + 한 파일의 `meeting_id` 동일·`timestamp` 시간순 검증. 가짜 JSON 단계부터 사용 ← T-00-7, T-00-8
-- [ ] T-00-13 벤치마크용 테스트 음성 준비 (R-10): 정답표 대본을 직접 녹음 또는 TTS로 제작. 실제 회사 회의는 쓰지 않는다. P7 착수 전까지 ← T-00-5, T-00-6
+- [x] T-00-13 벤치마크용 테스트 음성 준비 (R-10): 정답표 대본을 직접 녹음 또는 TTS로 제작. (완료: `tests/fixtures/stt/tts_meeting_001.*`, Windows SAPI ko-KR TTS 36초·4화자, `scripts/make_tts_fixture.py`. 단일 한국어 음성의 pitch/rate 변형이라 화자 구분 평가(T-02-8)에는 낙관·왜곡 가능) 실제 회사 회의는 쓰지 않는다. P7 착수 전까지 ← T-00-5, T-00-6
 - [x] T-00-14 **LLM 어댑터(`agents/` 경계)** (실제 호출 기준: 지원 Provider[Anthropic Claude·Google Gemini] 중 하나로 `runner(prompt)->str` end-to-end 성공이면 충족, 특정 Provider 종속 아님): Analyst·Action Manager·Reviewer 호출 인터페이스, 출력의 스키마 검증, 호출 오류·타임아웃 시 동작, 테스트용 고정 응답(fixture) 재생 모드, 실제 호출 테스트의 분리(마커). 프롬프트·역할 정본은 `.claude/agents/` ← T-00-1(R-05 결정), T-00-8
 
 ## 1. 녹음파일 입력 (A)
 
-- [ ] T-01-1 MP3/WAV 업로드 처리 + 회의 메타데이터 입력 (`meeting_id`, `meeting_date` 필수; `title`, `participants`, `speaker_map` 선택) → `meetings/<meeting_id>.meta.json` 저장. 원본 녹음은 신규 생성만(배타적 생성)
-- [ ] T-01-2 입력 사양 검증 (형식, 최대 2시간 초과·미지원 형식은 오류 메시지 후 중단). **"한국어" 판별 방법 ⚠ 미결 (CHK044)**: 정해지기 전에는 형식·길이만 검증
-- [ ] T-01-3 테스트: 업로드 후 원본 파일 해시 불변 (US-01) ← T-01-4
-- [ ] T-01-4 원본 녹음 생성 시 해시 기록 (R-08, 사후 변경 탐지) ← T-00-9
+- [x] T-01-1 MP3/WAV/M4A 업로드 처리 + 회의 메타데이터 입력 (`meeting_id`, `meeting_date` 필수; `title`, `participants`, `speaker_map` 선택) → `meetings/<meeting_id>.meta.json` 저장. 원본 녹음은 신규 생성만(배타적 생성)
+- [ ] T-01-2 입력 사양 검증 (형식, 최대 2시간 초과·미지원 형식은 오류 메시지 후 중단). (부분 완료: 형식·시그니처·WAV 길이 검증. MP3/M4A 길이는 디코더 필요 → 미검증) **"한국어" 판별 방법 ⚠ 미결 (CHK044)**: 정해지기 전에는 형식·길이만 검증
+- [x] T-01-3 테스트: 업로드 후 원본 파일 해시 불변 (US-01) ← T-01-4
+- [x] T-01-4 원본 녹음 생성 시 해시 기록 (R-08, 사후 변경 탐지) ← T-00-9
 
 ## 2. 녹취 데이터 생성 (A)
 
-- [ ] T-02-1 Whisper 계열 STT 연동 ← T-02-7
-- [ ] T-02-2 화자 구분 처리 + `speaker_map` 적용 (매핑 없으면 라벨 유지). 자기 할당 담당자는 매핑이 사람 확인을 거친 경우에만 실명으로 쓰는 방안을 R-02 결정에 따라 반영
-- [ ] T-02-3 발언 단위 JSON 출력 (`meeting_id`, `speaker`, `timestamp HH:MM:SS`(발언 시작), `text`, `low_confidence`)
-- [ ] T-02-4 STT 저신뢰 구간에 `low_confidence` 표시. 판정 지표와 임계값은 설정 파일로 분리해 튜닝 가능하게 한다 (R-03)
-- [ ] T-02-5 원본 녹취는 `transcripts/original/`에 신규 생성만, 파생물은 다른 경로에 저장
-- [ ] T-02-6 테스트: 타임스탬프 형식·필수 필드 검증, 원본 녹취 덮어쓰기 시도 차단 (US-01)
-- [ ] T-02-7 STT 후보 비교 벤치마크 (R-01): CER/WER, 타임스탬프 오차, 신뢰도 지표 제공, 2시간 처리 시간, Windows 설치 난이도. 무음·잡음 구간의 없는 문장 생성(환각)과 VAD·`no_speech_prob` 적용 효과 확인 ← T-00-13
+- [ ] T-02-1 Whisper 계열 STT 연동 ← T-02-7 (MVP: Gemini Audio Provider `stt/gemini_stt.py` 구현·fixture 테스트 완료, **실제 API smoke 대기**)
+- [x] T-02-2 화자 구분 처리 + `speaker_map` 적용 (매핑 없으면 라벨 유지). 자기 할당 담당자는 매핑이 사람 확인을 거친 경우에만 실명으로 쓰는 방안을 R-02 결정에 따라 반영
+- [x] T-02-3 발언 단위 JSON 출력 (`meeting_id`, `speaker`, `timestamp HH:MM:SS`(발언 시작), `text`, `low_confidence`)
+- [ ] T-02-4 (MVP 미완료 유지: Gemini Audio는 신뢰도 지표 없음, 가짜 confidence 금지) STT 저신뢰 구간에 `low_confidence` 표시. 판정 지표와 임계값은 설정 파일로 분리해 튜닝 가능하게 한다 (R-03)
+- [x] T-02-5 원본 녹취는 `transcripts/original/`에 신규 생성만, 파생물은 다른 경로에 저장
+- [x] T-02-6 테스트: 타임스탬프 형식·필수 필드 검증, 원본 녹취 덮어쓰기 시도 차단 (US-01)
+- [ ] T-02-7 (MVP: Gemini Audio 최소 검증만 — `scripts/smoke_gemini_stt.py` 준비 완료, 실행 대기. 로컬 Whisper 비교는 후속) STT 후보 비교 벤치마크 (R-01): CER/WER, 타임스탬프 오차, 신뢰도 지표 제공, 2시간 처리 시간, Windows 설치 난이도. 무음·잡음 구간의 없는 문장 생성(환각)과 VAD·`no_speech_prob` 적용 효과 확인 ← T-00-13
 - [ ] T-02-8 화자 구분 평가: 화자 오귀속 비율, 발언 경계(STT 세그먼트 vs 화자 전환), 동시 발화 처리 기준. 결과로 R-02 결정 ← T-00-13
 
 ## 3. Action 데이터 구조·상태 전이·완료 가드 (B) — 4장과 병렬 가능
@@ -140,7 +140,7 @@
 
 ## 11. Dashboard (공동) ← 7~10장
 
-- [ ] T-11-1 Streamlit 앱 골격
+- [ ] T-11-1 React/Vite + FastAPI 앱 골격 (하위: (a) Backend 골격·`/api/health`·mode·CORS, (b) frontend 골격·health 연결 배지, 이후 API endpoint는 이 Task 하위로 관리; 진행: (a)(b) 완료 — 나머지 endpoint 미구현으로 Task는 미완료)
 - [ ] T-11-2 회의 요약 영역 (핵심 논의 / 결정 / 미결 건수)
 - [ ] T-11-3 신규 지시 표 (상태, 담당, 지시사항, 기한 원문+환산)
 - [ ] T-11-4 이전 지시 이행점검 표 (상태, 담당, Action, 근거 타임스탬프)
@@ -151,7 +151,7 @@
 - [ ] T-11-9 **이전 Action List 지정 화면** (시리즈 자동 추론 없음) ← T-08-1
 - [ ] T-11-10 **사람 확인 큐 처리 화면** (유지/수정/폐기, 결정자 이름 입력) ← T-07-6, T-11-5
 - [ ] T-11-11 `speaker_map` 수동 보정 화면 (화자 구분 정확도가 부족할 때의 대안, R-02. 필요 여부는 T-02-8 결과로 결정) ← T-02-8
-- [ ] T-11-12 UI 흐름 테스트: 승인 UI가 가드(T-03-3)를 우회하지 못함, 큐 처리 화면의 사람 전용 동작 (테스트 방식은 Streamlit 지원 범위에서 선택)
+- [ ] T-11-12 UI 흐름 테스트: 승인 UI가 가드(T-03-3)를 우회하지 못함, 큐 처리 화면의 사람 전용 동작 (Backend는 FastAPI TestClient/pytest, Frontend는 Vite 빌드·컴포넌트 수준에서 선택)
 
 ## 12. 통합 테스트 (공동)
 
