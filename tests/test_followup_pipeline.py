@@ -314,7 +314,7 @@ def _invalid_for(bad_ids, inner):
 
 
 def _two_prev(store, new_action):
-    store.create(_prev_action(new_action, "A-002", assignee="이과장", task="자재 발주", due="목요일",
+    store.create(_prev_action(new_action, "A-002", assignee="김대리", task="자재 발주", due="목요일",
                               due_norm="2026-11-12"))
 
 

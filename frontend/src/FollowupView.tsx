@@ -117,7 +117,12 @@ function EvidenceQuote({ e }: { e: Evidence }) {
     <div className="evidence">
       <div className="ev-meta">
         🎙 {e.timestamp}
-        {e.speaker && <span className="ev-speaker">{e.speaker}</span>}
+        {e.speaker && (
+          <span className="ev-speaker">
+            {e.speaker}
+            {e.speaker_name ? ` · ${e.speaker_name}` : ''}
+          </span>
+        )}
       </div>
       <blockquote>“{e.text}”</blockquote>
     </div>

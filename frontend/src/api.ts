@@ -86,7 +86,10 @@ export interface SummaryItem {
 
 export interface Evidence {
   timestamp: string
+  /** 원본 STT 화자 라벨(speaker_N). 이름으로 바꾸지 않는다. */
   speaker: string | null
+  /** 사용자가 확인한 이름 (보조 표시). 미확인이면 null/없음 */
+  speaker_name?: string | null
   text: string
 }
 
@@ -198,6 +201,7 @@ const API_ERRORS: Record<string, string> = {
   completion_guard_violation: '완료 승인 조건을 만족하지 않아 처리하지 못했습니다. 완료는 사람이 새 근거로 승인해야 합니다.',
   invalid_transition: '현재 상태에서는 허용되지 않는 처리입니다. 화면의 상태가 오래되었을 수 있습니다.',
   action_not_found: 'Action을 찾을 수 없습니다.',
+  transcript_not_ready: '아직 음성 변환(STT)이 되지 않은 회의입니다.',
 }
 
 class ApiFailure extends Error {}
@@ -222,7 +226,7 @@ async function call<T>(path: string, init: RequestInit, fallback: string): Promi
   }
   if (API_ERRORS[code]) throw new ApiFailure(API_ERRORS[code])
   // 검증 안내문(invalid_review_request)은 서버가 사용자용 한국어 문구를 준다. 실제 원인을 숨기지 않는다.
-  if (code === 'invalid_review_request' && message) throw new ApiFailure(message)
+  if ((code === 'invalid_review_request' || code === 'invalid_speaker_map') && message) throw new ApiFailure(message)
   throw new ApiFailure(fallback)
 }
 
@@ -239,6 +243,38 @@ export function analyzeMeeting(meetingId: string, previousMeetingIds: string[]):
       body: JSON.stringify({ previous_meeting_ids: previousMeetingIds }),
     },
     '회의 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  )
+}
+
+export interface SpeakerItem {
+  speaker: string
+  utterance_count: number
+  /** transcript의 실제 발언 원문 (요약·생성 아님) */
+  samples: { timestamp: string; text: string }[]
+  confirmed_name: string | null
+}
+
+export interface SpeakerList {
+  meeting_id: string
+  speakers: SpeakerItem[]
+  confirmed: boolean
+}
+
+/** STT 준비 단계: 원본 transcript(speaker_N)와 화자 목록만 만든다. 분석은 하지 않는다. */
+export function transcribeMeeting(meetingId: string): Promise<SpeakerList> {
+  return call<SpeakerList>(
+    `/api/meetings/${encodeURIComponent(meetingId)}/transcribe`,
+    { method: 'POST' },
+    '음성 변환에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  )
+}
+
+/** 사용자가 확인한 화자 이름 저장. null = 미확인. 회의별로만 저장되며 다른 회의에는 적용되지 않는다. */
+export function saveSpeakerMap(meetingId: string, speakerMap: Record<string, string | null>): Promise<SpeakerList> {
+  return call<SpeakerList>(
+    `/api/meetings/${encodeURIComponent(meetingId)}/speaker-map`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ speaker_map: speakerMap }) },
+    '화자 확인 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.',
   )
 }
 

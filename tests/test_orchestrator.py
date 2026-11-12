@@ -189,7 +189,7 @@ def test_followup_retry_reused(store):
 
 # 14. ReviewOutputError isolation — 해당 Action만 fail-closed, 신규 Action은 계속
 def test_review_output_error_isolated(store, new_action):
-    store.create(_prev_action(new_action, "A-002", assignee="이대리", task="자료 정리"))
+    store.create(_prev_action(new_action, "A-002", assignee="김대리", task="자료 정리"))
     fu = {"A-001": A1_DONE, "A-002": _followup("A-002", TS_DONE, "김대리", DONE_TEXT)}
 
     def reviewer(prompt):
@@ -244,7 +244,7 @@ def test_no_store_write_during_parallel_phase(store, monkeypatch):
 
 # 18. 기존 Action ID 연속성
 def test_action_id_continuity(store, new_action):
-    store.create(_prev_action(new_action, "A-002", assignee="이대리", task="자료 정리"))
+    store.create(_prev_action(new_action, "A-002", assignee="김대리", task="자료 정리"))
     orch(store, fu={"A-001": A1_DONE, "A-002": _followup("A-002", TS_DONE, "김대리", DONE_TEXT, status="진행중")},
          fv={"A-001": "PASS", "A-002": "PASS"})
     assert [a["action_id"] for a in store.load_all()] == ["A-001", "A-002", "A-003"]

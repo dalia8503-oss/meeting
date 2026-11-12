@@ -85,7 +85,7 @@ def extract_review_convert(
     metadata: Mapping,
 ) -> ReviewedResult:
     """Analyst → Reviewer → (PASS만) convert_candidate. REJECT는 정상 Action 경로로 보내지 않는다."""
-    analysis = analyze_transcript(transcript, analyst_runner)
+    analysis = analyze_transcript(transcript, analyst_runner, metadata.get("speaker_map"))
     outcomes, reviews, rejected = [], [], []
     for group, candidate, utterance, verdicts in _review_groups(transcript, analysis, reviewer_runner):
         reviews.extend(verdicts)
@@ -105,9 +105,10 @@ class ReviewedAnalysis:
     rejected: tuple
 
 
-def analyze_and_review(transcript: Sequence[Mapping], analyst_runner, reviewer_runner) -> ReviewedAnalysis:
+def analyze_and_review(transcript: Sequence[Mapping], analyst_runner, reviewer_runner,
+                       speaker_map: Optional[Mapping] = None) -> ReviewedAnalysis:
     """store 없이 분석·검증만 한다 (Orchestrator의 병렬 구간)."""
-    analysis = analyze_transcript(transcript, analyst_runner)
+    analysis = analyze_transcript(transcript, analyst_runner, speaker_map)
     approved, reviews, rejected = [], [], []
     for group, candidate, utterance, verdicts in _review_groups(transcript, analysis, reviewer_runner):
         reviews.extend(verdicts)
@@ -162,7 +163,8 @@ def run_meeting_pipeline(
     """
     try:
         report = check_previous_actions(transcript, followup_runner, store=store,
-                                        previous_meeting_ids=previous_meeting_ids, meetings_dir=meetings_dir)
+                                        previous_meeting_ids=previous_meeting_ids, meetings_dir=meetings_dir,
+                                        speaker_map=metadata.get("speaker_map"))
         outcomes = apply_followups_with_retry(store, report.results, transcript, followup_runner,
                                               followup_reviewer_runner, metadata["meeting_date"])
         invalid, snapshot = tuple(report.rejected), report.saved_path

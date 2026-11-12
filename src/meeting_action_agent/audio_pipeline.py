@@ -12,6 +12,26 @@ from meeting_action_agent.store import ActionStore
 from meeting_action_agent.stt import run_stt, save_original_transcript
 
 
+def _recorded_audio_path(root: Path, meeting_id: str) -> Path:
+    """업로드된 원본 녹음 경로. 해시가 기록과 다르면 중단한다 (변조 확인)."""
+    if not verify_audio_hash(root, meeting_id):
+        raise RuntimeError("원본 녹음 해시가 기록과 다릅니다 (변경 의심) — 중단")
+    hash_file = root / "meetings" / f"{safe_meeting_id(meeting_id)}.audio.json"
+    return root / json.loads(hash_file.read_text(encoding="utf-8"))["file"]
+
+
+def prepare_transcript(*, meeting_id: str, root, provider) -> list:
+    """STT 준비 단계 (T-LIVE-SPK): 원본 Transcript만 만든다 (분석 없음). 화자 이름은 적용하지 않는다 — speaker_N 원본 그대로.
+    이미 있으면 재생성·덮어쓰기 없이 그대로 읽는다."""
+    root = Path(root)
+    transcript_path = root / "transcripts" / "original" / f"{safe_meeting_id(meeting_id)}.json"
+    if transcript_path.exists():
+        return json.loads(transcript_path.read_text(encoding="utf-8"))
+    transcript = run_stt(provider, _recorded_audio_path(root, meeting_id), meeting_id, None)
+    save_original_transcript(transcript, root)
+    return transcript
+
+
 def run_audio_pipeline(
     audio,
     *,
@@ -40,10 +60,7 @@ def run_audio_pipeline(
 
     hash_file = root / "meetings" / f"{safe_meeting_id(meeting_id)}.audio.json"
     if hash_file.exists():  # 이전 실행의 원본 재사용 (덮어쓰지 않음, 해시로 변조 확인)
-        if not verify_audio_hash(root, meeting_id):
-            raise RuntimeError("원본 녹음 해시가 기록과 다릅니다 (변경 의심) — 중단")
-        record = json.loads(hash_file.read_text(encoding="utf-8"))
-        audio_path = root / record["file"]
+        audio_path = _recorded_audio_path(root, meeting_id)
     else:
         audio_path = ingest_audio(audio, metadata, root).audio_path
 

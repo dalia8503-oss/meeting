@@ -118,9 +118,11 @@ def run_orchestrated_meeting(
         return _run_first_meeting(transcript, analyst_runner, candidate_reviewer_runner,
                                   store=store, metadata=metadata)
 
+    speaker_map = metadata.get("speaker_map")  # 사용자가 확인한 화자 (없으면 None = 모든 화자 미확인)
+
     def branch_a():
         try:
-            reviewed = analyze_and_review(transcript, analyst_runner, candidate_reviewer_runner)
+            reviewed = analyze_and_review(transcript, analyst_runner, candidate_reviewer_runner, speaker_map)
         except _NEW_PATH_DOMAIN_ERRORS as e:
             return None, {}, f"{type(e).__name__}: {e}"
         return reviewed, _tally(r["verdict"] for r in reviewed.reviews), None
@@ -128,13 +130,14 @@ def run_orchestrated_meeting(
     def branch_b():
         try:
             report = check_previous_actions(transcript, followup_runner, store=store,
-                                            previous_meeting_ids=previous_meeting_ids, meetings_dir=meetings_dir)
+                                            previous_meeting_ids=previous_meeting_ids, meetings_dir=meetings_dir,
+                                        speaker_map=speaker_map)
         except NoPreviousActionsSpecified:
             return ((), (), None), {}, None
         except _FOLLOWUP_DOMAIN_ERRORS as e:
             return None, {}, f"{type(e).__name__}: {e}"
         prepared = prepare_followups_with_retry(store, report.results, transcript, followup_runner,
-                                                followup_reviewer_runner)
+                                                followup_reviewer_runner, speaker_map)
         verdicts = (p.review["verdict"] for p in prepared if p.review)
         return (prepared, tuple(report.rejected), report.saved_path), _tally(verdicts), None
 

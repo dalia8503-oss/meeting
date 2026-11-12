@@ -168,11 +168,12 @@ def test_unmapped_speaker_label_cannot_be_high_confidence(store):
     assert report.results == () and len(report.rejected) == 1
 
 
-def test_unmapped_speaker_label_medium_confidence_allowed(store):
+def test_unmapped_speaker_label_completion_candidate_rejected(store):
+    # T-LIVE-SPK: 사용자 확인 화자(speaker_map)가 없으면 이름 없는 완료 발언은 중간 확신도여도 완료 후보 불가 (fail-closed)
     text = "지난번 말씀하신 도면 수정해서 공유했습니다."
-    runner = make_runner({text: ("완료 후보", "중", "제3자 보고 가능, 화자 미확정")})
-    r = _run(store, _tr(text, speaker="speaker_1"), runner).results[0]
-    assert r["proposed_status"] == "완료 후보" and r["evidence"][0]["speaker"] == "speaker_1"
+    runner = make_runner({text: ("완료 후보", "중", "화자 미확정")})
+    report = _run(store, _tr(text, speaker="speaker_1"), runner)
+    assert report.results == () and len(report.rejected) == 1
 
 
 def test_assignee_name_in_text_allows_high_confidence(store):

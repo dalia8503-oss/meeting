@@ -94,11 +94,12 @@ def _note(action: Mapping, result: Mapping, current_meeting_date: str, guard_not
     return " | ".join(parts)
 
 
-def _review(action: Mapping, result: Mapping, transcript, reviewer_runner, attempt: int) -> dict:
+def _review(action: Mapping, result: Mapping, transcript, reviewer_runner, attempt: int,
+            speaker_map: Optional[Mapping] = None) -> dict:
     """검증(실패 시 예외) → Reviewer. 쓰기 없음."""
-    validate_followup(result, action, transcript)
+    validate_followup(result, action, transcript, speaker_map)
     return review_followup(copy.deepcopy(action), transcript, copy.deepcopy(dict(result)),
-                           reviewer_runner, attempt=attempt)
+                           reviewer_runner, attempt=attempt, speaker_map=speaker_map)
 
 
 def _commit(store, action: Mapping, result: Mapping, review: dict, current_meeting_date: str) -> ApplyOutcome:
@@ -158,7 +159,8 @@ class PreparedFollowup:
 
 def prepare_followup_with_retry(store, first_result: Mapping, transcript: Sequence[Mapping],
                                 followup_runner: Callable[[str], Union[str, dict]],
-                                reviewer_runner: Callable[[str], Union[str, dict]]) -> PreparedFollowup:
+                                reviewer_runner: Callable[[str], Union[str, dict]],
+                                speaker_map: Optional[Mapping] = None) -> PreparedFollowup:
     """T-09-7의 검증 구간. 첫 FollowupResult → Reviewer #1. REJECT면 Follow-up 재분석 딱 1회 → Reviewer #2.
 
     - store는 읽기만 한다(write 없음). 따라서 다른 Branch와 동시에 실행해도 파일 write 경합이 없다.
@@ -175,21 +177,22 @@ def prepare_followup_with_retry(store, first_result: Mapping, transcript: Sequen
         return PreparedFollowup(aid, final=ApplyOutcome(
             aid, "skipped", current, current, "완료 Action은 이행점검 반영 대상이 아님"))
 
-    review = _review(action, first_result, transcript, reviewer_runner, 0)
+    review = _review(action, first_result, transcript, reviewer_runner, 0, speaker_map)
     if review["verdict"] == "PASS":
         return PreparedFollowup(aid, action, dict(first_result), review)
 
     retry = {"previous_result": copy.deepcopy(dict(first_result)),
              "reviewer_reasons": copy.deepcopy(review["reasons"])}
-    raw = followup_runner(build_prompt(copy.deepcopy(action), copy.deepcopy(list(transcript)), retry))
+    raw = followup_runner(build_prompt(copy.deepcopy(action), copy.deepcopy(list(transcript)), retry,
+                                    speaker_map=speaker_map))
     try:
         second = json.loads(raw) if isinstance(raw, str) else raw
-        validate_followup(second, action, transcript)  # 1차와 동일한 전체 검증
+        validate_followup(second, action, transcript, speaker_map)  # 1차와 동일한 전체 검증
     except (json.JSONDecodeError, SchemaValidationError, FollowupValidationError, CompletionGuardError) as e:
         return PreparedFollowup(aid, final=ApplyOutcome(
             aid, "rejected", current, current, f"재분석 결과 invalid: {e}", review, followup_calls=2, review_calls=1))
 
-    review2 = _review(action, second, transcript, reviewer_runner, 1)
+    review2 = _review(action, second, transcript, reviewer_runner, 1, speaker_map)
     if review2["verdict"] != "PASS":
         return PreparedFollowup(aid, final=ApplyOutcome(
             aid, "rejected", current, current, "Reviewer REJECT (재분석 후)", review2,
@@ -250,7 +253,7 @@ _ISOLATED = (FollowupValidationError, SchemaValidationError, CompletionGuardErro
 
 
 def prepare_followups_with_retry(store, results: Sequence[Mapping], transcript: Sequence[Mapping],
-                                 followup_runner, reviewer_runner) -> list:
+                                 followup_runner, reviewer_runner, speaker_map: Optional[Mapping] = None) -> list:
     """Action별 독립 검증 구간(read-only). 실패·REJECT·Reviewer 출력 invalid는 해당 Action만 rejected로 격리한다.
 
     apply_followups_with_retry와 같은 격리 정책이며(그 외 예외는 삼키지 않는다) store write가 없다.
@@ -259,7 +262,8 @@ def prepare_followups_with_retry(store, results: Sequence[Mapping], transcript: 
     for r in results:
         aid = r.get("action_id", "?")
         try:
-            prepared.append(prepare_followup_with_retry(store, r, transcript, followup_runner, reviewer_runner))
+            prepared.append(prepare_followup_with_retry(store, r, transcript, followup_runner, reviewer_runner,
+                                                      speaker_map))
         except _ISOLATED as e:
             prepared.append(PreparedFollowup(aid, final=ApplyOutcome(aid, "rejected", detail=str(e))))
         except ReviewOutputError as e:

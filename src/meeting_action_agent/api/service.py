@@ -8,15 +8,17 @@ from pathlib import Path
 from typing import Optional
 
 from ..analyst import AnalysisValidationError, save_analysis
-from ..audio_pipeline import run_audio_pipeline
+from ..audio_pipeline import prepare_transcript, run_audio_pipeline
 from ..ingest import IngestError, ingest_audio, safe_meeting_id
 from ..review import review_action, withdraw_completion
 from ..reviewer import ReviewOutputError
 from ..state import CompletionGuardError, TransitionError
 from ..stt import SttError, TranscriptError
+from ..speakers import SpeakerMapError, confirmed_names, list_speakers, validate_speaker_map
 from ..store import ActionStore
 from .mode import get_data_root, get_mode
-from .schemas import ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingSummary
+from .schemas import (
+    ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingSummary, SpeakerItem, SpeakerList)
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 _CHUNK = 1 << 20
@@ -114,6 +116,10 @@ def list_meetings() -> list:
 
 # ---------------------------------------------------------------- analyze (orchestration only)
 
+def _transcript_path(root: Path, mid: str) -> Path:
+    return root / "transcripts" / "original" / f"{mid}.json"
+
+
 _running: set = set()
 _running_lock = threading.Lock()
 
@@ -163,6 +169,15 @@ def _speakers(root: Path, meeting_id: str, cache: dict) -> dict:
     return cache[meeting_id]
 
 
+def _confirmed_map(root: Path, meeting_id: str) -> dict:
+    """해당 회의에서 사용자가 확인한 {speaker_N: 이름}. 회의 단위이며 다른 회의의 매핑은 쓰지 않는다."""
+    try:
+        meta = _read_json(root / "meetings" / f"{safe_meeting_id(meeting_id)}.meta.json")
+    except (OSError, ValueError):
+        return {}
+    return confirmed_names(meta.get("speaker_map"))
+
+
 def _action_view(a: dict, root: Path, cache: dict) -> dict:
     """저장된 Action을 화면용 DTO로 옮긴다. 값은 수정하지 않는다."""
     speaker = _speakers(root, a["meeting_id"], cache).get(a["timestamp"])
@@ -170,7 +185,8 @@ def _action_view(a: dict, root: Path, cache: dict) -> dict:
         "action_id": a["action_id"], "meeting_id": a["meeting_id"], "status": a["status"],
         "assignee": a["assignee"], "assigner": a["assigner"], "task": a["task"], "due_date": a["due_date"],
         "due_date_normalized": a["due_date_normalized"], "flags": a["flags"],
-        "evidence": {"timestamp": a["timestamp"], "speaker": speaker, "text": a["evidence"]},
+        "evidence": {"timestamp": a["timestamp"], "speaker": speaker,
+                     "speaker_name": _confirmed_map(root, a["meeting_id"]).get(speaker), "text": a["evidence"]},
         "approved_by_human": a.get("approved_by_human"), "history": a["history"],
     }
 
@@ -256,13 +272,15 @@ def _execution_record(orch) -> Optional[dict]:
     return {"mode": orch.mode, "overlapped": orch.overlapped, "agents": agents, "reviewer": total}
 
 
-def _followup_records(orch, store: ActionStore) -> list:
+def _followup_records(orch, store: ActionStore, root: Path) -> list:
     out = []
     for o in orch.followup_outcomes if orch else ():
         evidence = []
         if o.outcome in ("applied", "reassessed"):  # 방금 반영된 근거 = 해당 Action의 마지막 history 근거
             hist = store.get(o.action_id)["history"][-1]
-            evidence = [{"timestamp": q["timestamp"], "speaker": q.get("speaker"), "text": q["text"]}
+            evidence = [{"timestamp": q["timestamp"], "speaker": q.get("speaker"),
+                         "speaker_name": _confirmed_map(root, q.get("meeting_id") or "").get(q.get("speaker")),
+                         "text": q["text"]}
                         for q in hist.get("evidence", [])]
         out.append({"action_id": o.action_id, "outcome": o.outcome, "from_status": o.from_status,
                     "to_status": o.to_status, "detail": o.detail,
@@ -287,6 +305,10 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
     try:
         deps = _demo_dependencies(mid) if get_mode() == "demo" else _live_dependencies()
         metadata = json.loads(meta.read_text(encoding="utf-8"))
+        if _transcript_path(root, mid).is_file():
+            # STT 준비 단계를 거친 회의: 원본 transcript(speaker_N)를 그대로 쓰고, 사람이 확인한 매핑만 전달한다.
+            # 확인하지 않은 화자는 미확인이다 (DEMO 고정 매핑도 쓰지 않는다).
+            deps["speaker_map"] = metadata.get("speaker_map") or None
         try:
             result = run_audio_pipeline(
                 None, meeting_id=mid, meeting_date=metadata["meeting_date"], root=root,
@@ -312,7 +334,7 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
         run = {
             "previous_meeting_ids": previous,
             "execution": _execution_record(orch),
-            "followup_results": _followup_records(orch, store),
+            "followup_results": _followup_records(orch, store, root),
             "followup_invalid": [dict(x) for x in (orch.followup_invalid if orch else ())],
             "new_actions_error": orch.new_actions_error if orch else None,
             "followup_error": orch.followup_error if orch else None,
@@ -330,6 +352,76 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
     finally:
         with _running_lock:
             _running.discard(mid)
+
+
+# ---------------------------------------------------------------- 화자 확인 (STT 준비 ↔ 분석 사이)
+
+def _speaker_list(mid: str, root: Path, meta: dict) -> SpeakerList:
+    transcript = _read_json(_transcript_path(root, mid))
+    names = confirmed_names(meta.get("speaker_map"))
+    items = [SpeakerItem(**s, confirmed_name=names.get(s["speaker"])) for s in list_speakers(transcript)]
+    return SpeakerList(meeting_id=mid, speakers=items, confirmed="speaker_map" in meta)
+
+
+def _meeting_for_speakers(meeting_id: str, *, need_transcript: bool):
+    mid, root, meta_path, analysis_path, _ = _paths(meeting_id)
+    if not meta_path.is_file():
+        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
+    if need_transcript and not _transcript_path(root, mid).is_file():
+        raise ApiError(409, "transcript_not_ready", "아직 음성 변환(STT)이 되지 않은 회의입니다.")
+    return mid, root, meta_path
+
+
+def transcribe_meeting(meeting_id: str) -> SpeakerList:
+    """STT 준비 단계: 원본 transcript(speaker_N)만 만들고 화자 목록을 돌려준다. 분석은 하지 않는다. 멱등."""
+    mid, root, meta_path = _meeting_for_speakers(meeting_id, need_transcript=False)
+    if not _transcript_path(root, mid).is_file():
+        with _running_lock:
+            if mid in _running:
+                raise ApiError(409, "analysis_in_progress", "이 회의는 처리가 진행 중입니다.")
+            _running.add(mid)
+        try:
+            deps = _demo_dependencies(mid) if get_mode() == "demo" else _live_dependencies()
+            try:
+                prepare_transcript(meeting_id=mid, root=root, provider=deps["provider"])
+            except FileExistsError:
+                pass  # 동시 요청이 먼저 저장함 — 원본은 덮어쓰지 않는다
+            except (SttError, TranscriptError):
+                raise ApiError(502, "stt_failed", "음성 변환(STT)에 실패했습니다. 잠시 후 다시 시도해 주세요.") from None
+            except RuntimeError as e:
+                if "해시" in str(e):
+                    raise ApiError(409, "audio_integrity_error", "원본 녹음이 변경된 것으로 보여 중단했습니다.") from None
+                raise
+        finally:
+            with _running_lock:
+                _running.discard(mid)
+    return _speaker_list(mid, root, _read_json(meta_path))
+
+
+def get_speakers(meeting_id: str) -> SpeakerList:
+    mid, root, meta_path = _meeting_for_speakers(meeting_id, need_transcript=True)
+    return _speaker_list(mid, root, _read_json(meta_path))
+
+
+def put_speaker_map(meeting_id: str, requested: dict) -> SpeakerList:
+    """사용자가 확인한 화자 이름을 회의 metadata(meta.json의 speaker_map)에 저장한다. 원본 transcript는 건드리지 않는다.
+    전체 교체 방식이며 분석 전에만 가능하다. 다른 회의의 매핑을 복사하거나 추측하지 않는다."""
+    mid, root, meta_path = _meeting_for_speakers(meeting_id, need_transcript=True)
+    if _run_path(root, mid).is_file() or (root / "meetings" / f"{mid}.analysis.json").is_file():
+        raise ApiError(409, "already_analyzed", "이미 분석된 회의의 화자 확인은 바꿀 수 없습니다.")
+    with _running_lock:
+        if mid in _running:
+            raise ApiError(409, "analysis_in_progress", "이 회의는 분석이 진행 중입니다.")
+    try:
+        mapping = validate_speaker_map(requested, _read_json(_transcript_path(root, mid)))
+    except SpeakerMapError as e:
+        raise ApiError(422, "invalid_speaker_map", str(e)) from None
+    meta = _read_json(meta_path)
+    meta["speaker_map"] = mapping
+    tmp = meta_path.with_suffix(f".json.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, meta_path)
+    return _speaker_list(mid, root, meta)
 
 
 # ---------------------------------------------------------------- Human Review (review 도메인을 호출만 한다)

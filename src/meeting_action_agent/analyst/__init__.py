@@ -11,9 +11,10 @@ import json
 import os
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Mapping, Sequence, Union
+from typing import Callable, Mapping, Optional, Sequence, Union
 
 from meeting_action_agent.contracts import CONTRACTS_DIR, receive_agent_output, validate
+from meeting_action_agent.speakers import speaker_context_text
 
 AGENT_DEFINITION = Path(__file__).resolve().parents[3] / ".claude" / "agents" / "meeting-analyst.md"
 
@@ -22,13 +23,14 @@ class AnalysisValidationError(ValueError):
     """MeetingAnalysis가 transcript 근거 검증을 통과하지 못함. 저장하지 않는다."""
 
 
-def build_prompt(transcript: Sequence[Mapping]) -> str:
+def build_prompt(transcript: Sequence[Mapping], speaker_map: Optional[Mapping] = None) -> str:
     validate("transcript", list(transcript))
     agent = AGENT_DEFINITION.read_text(encoding="utf-8")
     schema = (CONTRACTS_DIR / "meeting-analysis.schema.json").read_text(encoding="utf-8")
     return (
         f"{agent}\n\n## 출력 스키마 (meeting-analysis.schema.json)\n{schema}\n\n"
         "## Transcript\n" + json.dumps(list(transcript), ensure_ascii=False, indent=1)
+        + speaker_context_text(speaker_map)
         + "\n\n위 Transcript만 근거로 MeetingAnalysis JSON 하나만 출력하라."
     )
 
@@ -85,9 +87,10 @@ def relink_utterance(candidate: Mapping, transcript: Sequence[Mapping]) -> Mappi
     return found[0]
 
 
-def analyze_transcript(transcript: Sequence[Mapping], runner: Callable[[str], Union[str, dict]]) -> dict:
+def analyze_transcript(transcript: Sequence[Mapping], runner: Callable[[str], Union[str, dict]],
+                       speaker_map: Optional[Mapping] = None) -> dict:
     """Transcript → MeetingAnalysis. 검증을 통과한 결과만 반환한다."""
-    raw = runner(build_prompt(transcript))
+    raw = runner(build_prompt(transcript, speaker_map))
     try:
         analysis = json.loads(raw) if isinstance(raw, str) else raw
     except json.JSONDecodeError as e:

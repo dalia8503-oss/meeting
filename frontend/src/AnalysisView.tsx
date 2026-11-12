@@ -88,7 +88,12 @@ function ActionRow({ a, meetingId }: { a: ActionView; meetingId: string }) {
             <div className="evidence">
               <div className="ev-meta">
                 🎙 {a.evidence.timestamp}
-                {a.evidence.speaker && <span className="ev-speaker">{a.evidence.speaker}</span>}
+                {a.evidence.speaker && (
+                  <span className="ev-speaker">
+                    {a.evidence.speaker}
+                    {a.evidence.speaker_name ? ` · ${a.evidence.speaker_name}` : ''}
+                  </span>
+                )}
               </div>
               <blockquote>“{a.evidence.text}”</blockquote>
             </div>

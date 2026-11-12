@@ -37,7 +37,8 @@ class SummaryItem(BaseModel):
 
 class Evidence(BaseModel):
     timestamp: str
-    speaker: Optional[str] = None
+    speaker: Optional[str] = None       # 원본 STT 화자 라벨(speaker_N). 이름으로 바꾸지 않는다.
+    speaker_name: Optional[str] = None  # 사용자가 확인한 이름 (보조 표시). 미확인이면 null
     text: str
 
 
@@ -61,6 +62,29 @@ class RejectedView(BaseModel):
     assignee: str
     timestamp: str
     evidence: str
+
+
+class SpeakerSample(BaseModel):
+    timestamp: str
+    text: str
+
+
+class SpeakerItem(BaseModel):
+    speaker: str                        # 원본 라벨 (speaker_N)
+    utterance_count: int
+    samples: List[SpeakerSample]        # transcript의 실제 발언 원문 (생성·요약 없음)
+    confirmed_name: Optional[str] = None  # 사용자가 확인한 이름. 없으면 미확인
+
+
+class SpeakerList(BaseModel):
+    meeting_id: str
+    speakers: List[SpeakerItem]
+    confirmed: bool                     # 사용자가 화자 확인을 한 번이라도 저장했는가
+
+
+class SpeakerMapRequest(BaseModel):
+    """{"speaker_1": "팀장", "speaker_2": null}. null = 미확인(저장하지 않음). 빈 문자열은 거부된다."""
+    speaker_map: Dict[str, Optional[str]]
 
 
 class AnalyzeRequest(BaseModel):

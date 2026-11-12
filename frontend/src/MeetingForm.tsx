@@ -1,12 +1,25 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react'
-import { analyzeMeeting, createMeeting, fetchMeetings, type ActionView, type AnalysisResult, type MeetingCreated } from './api'
+import {
+  analyzeMeeting, createMeeting, fetchMeetings, saveSpeakerMap, transcribeMeeting,
+  type ActionView, type AnalysisResult, type MeetingCreated, type SpeakerList,
+} from './api'
 import AnalysisView, { Progress, type Phase } from './AnalysisView'
 import PreviousMeetings, { type MeetingsLoad } from './PreviousMeetings'
+import SpeakerConfirm from './SpeakerConfirm'
+import { toSpeakerMap, type SpeakerInputs } from './speakerInputs'
 
 type State =
   | { s: 'idle' }
   | { s: 'uploading' }
-  | { s: 'success'; meeting: MeetingCreated; analyzing?: boolean; error?: string; result?: AnalysisResult }
+  | {
+      s: 'success'
+      meeting: MeetingCreated
+      preparing?: boolean // STT 준비(화자 목록 만드는 중)
+      speakers?: SpeakerList // STT 준비가 끝나 화자 확인을 기다림
+      analyzing?: boolean
+      error?: string
+      result?: AnalysisResult
+    }
   | { s: 'error'; message: string }
 
 const ACCEPT = '.mp3,.wav,.m4a'
@@ -21,6 +34,7 @@ export default function MeetingForm() {
   const input = useRef<HTMLInputElement>(null)
   const [prevLoad, setPrevLoad] = useState<MeetingsLoad>({ s: 'loading' })
   const [previousIds, setPreviousIds] = useState<string[]>([])
+  const [speakerInputs, setSpeakerInputs] = useState<SpeakerInputs>({})
   const busy = state.s === 'uploading'
 
   /** 서버의 회의 목록으로 이전 회의 후보를 (재)로드한다. 현재 회의는 후보에서 제외한다. 실패해도 분석은 계속 가능하다. */
@@ -59,18 +73,36 @@ export default function MeetingForm() {
     setTitle('')
     setFile(null)
     setPreviousIds([])
+    setSpeakerInputs({})
     setState({ s: 'idle' })
   }
 
-  const analyze = async (meeting: MeetingCreated) => {
-    setState({ s: 'success', meeting, analyzing: true })
+  /** 1단계: STT 준비. 원본 transcript의 speaker_N 목록을 받아 "화자 확인" 단계를 보여준다. 분석은 아직 하지 않는다. */
+  const prepare = async (meeting: MeetingCreated) => {
+    setState({ s: 'success', meeting, preparing: true })
     try {
+      const speakers = await transcribeMeeting(meeting.meeting_id)
+      // 입력창은 비워 둔다. 이름은 사용자가 직접 입력한 것만 쓴다 (서버가 이미 확인한 값이 있으면 그 값만 복원).
+      setSpeakerInputs(
+        Object.fromEntries(speakers.speakers.map((s) => [s.speaker, { name: s.confirmed_name ?? '', unsure: false }])),
+      )
+      setState({ s: 'success', meeting, speakers })
+    } catch (err) {
+      setState({ s: 'success', meeting, error: err instanceof Error ? err.message : '음성 변환에 실패했습니다.' })
+    }
+  }
+
+  /** 2단계: 사용자가 확인한 화자(미확인 포함)를 저장한 뒤 분석한다. */
+  const analyze = async (meeting: MeetingCreated, speakers: SpeakerList) => {
+    setState({ s: 'success', meeting, speakers, analyzing: true })
+    try {
+      await saveSpeakerMap(meeting.meeting_id, toSpeakerMap(speakers, speakerInputs))
       // 이전 회의가 없으면 [] 를 보낸다 (null이 아님).
       const result = await analyzeMeeting(meeting.meeting_id, previousIds)
       setState({ s: 'success', meeting, result })
       void loadPrevious() // 방금 분석한 회의를 다음 회의의 이전 회의 후보로 반영 (reload 없음)
     } catch (err) {
-      setState({ s: 'success', meeting, error: err instanceof Error ? err.message : '회의 분석에 실패했습니다.' })
+      setState({ s: 'success', meeting, speakers, error: err instanceof Error ? err.message : '회의 분석에 실패했습니다.' })
     }
   }
 
@@ -83,7 +115,7 @@ export default function MeetingForm() {
     })
 
   const phase: Phase =
-    state.s === 'success' ? (state.result ? 'done' : state.analyzing ? 'analyzing' : 'uploaded') : 'idle'
+    state.s === 'success' ? (state.result ? 'done' : state.analyzing || state.preparing ? 'analyzing' : 'uploaded') : 'idle'
 
   if (state.s === 'success') {
     return (
@@ -95,12 +127,12 @@ export default function MeetingForm() {
             <span className="muted small">🎙 {state.meeting.audio_filename}</span>
           </div>
           <div className="mh-actions">
-            {!state.result && (
-              <button type="button" className="btn-primary" disabled={state.analyzing} onClick={() => analyze(state.meeting)}>
-                {state.error ? '다시 분석' : '회의 분석 시작'}
+            {!state.result && !state.speakers && (
+              <button type="button" className="btn-primary" disabled={state.preparing} onClick={() => prepare(state.meeting)}>
+                {state.preparing ? '음성 변환 중…' : state.error ? '다시 시도' : '회의 분석 시작'}
               </button>
             )}
-            <button type="button" className="btn-link" disabled={state.analyzing} onClick={reset}>
+            <button type="button" className="btn-link" disabled={state.analyzing || state.preparing} onClick={reset}>
               새 회의 등록
             </button>
           </div>
@@ -112,6 +144,21 @@ export default function MeetingForm() {
             onChange={setPreviousIds}
             disabled={!!state.analyzing}
           />
+        )}
+        {!state.result && state.speakers && (
+          <>
+            <SpeakerConfirm list={state.speakers} inputs={speakerInputs} onChange={setSpeakerInputs} disabled={!!state.analyzing} />
+            <div className="actions">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={state.analyzing}
+                onClick={() => state.speakers && analyze(state.meeting, state.speakers)}
+              >
+                {state.error ? '다시 분석' : '분석 시작'}
+              </button>
+            </div>
+          </>
         )}
         {state.error && <p className="error" role="alert">{state.error}</p>}
         <Progress phase={phase} />

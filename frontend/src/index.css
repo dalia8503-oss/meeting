@@ -179,3 +179,12 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   .action-table td, .action-table td:nth-child(n) { width: auto; border: 0; padding: 3px 4px; white-space: normal; }
   .action-table tr.ev-row { padding: 0; }
 }
+
+/* 화자 확인 (T-LIVE-SPK) */
+.speaker-panel { display: flex; flex-direction: column; gap: 8px; }
+.speaker-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.speaker-item { border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.speaker-label { font-weight: 700; }
+.speaker-samples { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.speaker-input { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.speaker-unsure { display: flex; align-items: center; gap: 6px; color: var(--muted); }

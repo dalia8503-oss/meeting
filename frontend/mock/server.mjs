@@ -14,7 +14,7 @@ const send = (res, status, body) => {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
   })
   res.end(JSON.stringify(body))
 }
@@ -59,7 +59,39 @@ http
       return send(res, 201, { meeting_id: id, title, meeting_date: date, audio_filename: 'demo.m4a', status: 'uploaded' })
     }
 
-    let m = p.match(/^\/api\/meetings\/([^/]+)\/analyze$/)
+    // ---- 화자 확인 (T-LIVE-SPK): speaker_N 라벨만 주고, 이름은 사용자가 보낸 것만 저장한다
+    const SPEAKERS = [
+      { speaker: 'speaker_1', utterance_count: 3, samples: [{ timestamp: '00:00:05', text: '김대리님, 지난번 도면 수정해서 공유하는 건 어떻게 됐어요?' }] },
+      { speaker: 'speaker_2', utterance_count: 2, samples: [{ timestamp: '00:00:10', text: '수정 완료해서 어제 공유했습니다.' }, { timestamp: '00:00:20', text: '네, 확인했습니다.' }] },
+    ]
+    const speakerList = (mt) => ({
+      meeting_id: mt.id, confirmed: !!mt.speakerMap,
+      speakers: SPEAKERS.map((s) => ({ ...s, confirmed_name: mt.speakerMap?.[s.speaker] ?? null })),
+    })
+    let m = p.match(/^\/api\/meetings\/([^/]+)\/(transcribe|speakers|speaker-map)$/)
+    if (m) {
+      const mt = meetings.get(m[1])
+      if (!mt) return err(res, 404, 'meeting_not_found', '')
+      if (m[2] === 'transcribe' && req.method === 'POST') {
+        await new Promise((r) => setTimeout(r, 500))
+        mt.transcribed = true
+        return send(res, 200, speakerList(mt))
+      }
+      if (!mt.transcribed) return err(res, 409, 'transcript_not_ready', '')
+      if (m[2] === 'speakers' && req.method === 'GET') return send(res, 200, speakerList(mt))
+      if (m[2] === 'speaker-map' && req.method === 'PUT') {
+        const body = JSON.parse((await readBody(req)) || '{}').speaker_map ?? {}
+        const known = SPEAKERS.map((s) => s.speaker)
+        for (const [k, v] of Object.entries(body)) {
+          if (!known.includes(k)) return err(res, 422, 'invalid_speaker_map', `transcript에 없는 화자입니다: ${k}`)
+          if (v !== null && !String(v).trim()) return err(res, 422, 'invalid_speaker_map', `${k}: 이름이 비어 있습니다. 모르면 미확인으로 두세요.`)
+        }
+        mt.speakerMap = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== null).map(([k, v]) => [k, String(v).trim()]))
+        return send(res, 200, speakerList(mt))
+      }
+    }
+
+    m = p.match(/^\/api\/meetings\/([^/]+)\/analyze$/)
     if (m && req.method === 'POST') {
       const mt = meetings.get(m[1])
       if (!mt) return err(res, 404, 'meeting_not_found', '')
@@ -71,7 +103,8 @@ http
       if (/conflict/i.test(mt.title)) return err(res, 409, 'followup_snapshot_conflict', '')
       await new Promise((r) => setTimeout(r, 900))
       mt.analyzed = true
-      const ev = (ts, text, speaker) => ({ timestamp: ts, speaker, text })
+      const nm = (sp) => mt.speakerMap?.[sp] ?? null
+      const ev = (ts, text, speaker) => ({ timestamp: ts, speaker, speaker_name: nm(speaker), text })
       const mk = (id, mtg, assignee, task, due, norm, e) => ({
         action_id: id, meeting_id: mtg, status: '신규', assignee, assigner: '팀장', task, due_date: due,
         due_date_normalized: norm, flags: [], evidence: e, approved_by_human: null, history: [],
@@ -86,7 +119,7 @@ http
       }
       base.meeting_analysis = { summary: base.summary, decisions: base.decisions, open_issues: base.open_issues, needs_confirmation: base.needs_confirmation }
       if (prev.length === 0) {
-        const a = mk('A-001', mt.id, '김대리', '도면 수정해서 공유', '금요일까지', null, ev('00:00:12', '김대리, 금요일까지 도면 수정해서 공유해주세요.', '팀장'))
+        const a = mk('A-001', mt.id, '김대리', '도면 수정해서 공유', '금요일까지', null, ev('00:00:12', '김대리, 금요일까지 도면 수정해서 공유해주세요.', 'speaker_1'))
         actions.set(a.action_id, a)
         return send(res, 200, {
           ...base, actions: [a], new_actions: [a], followup_results: [], previous_meeting_ids: [],
@@ -95,12 +128,12 @@ http
       }
       const a1 = actions.get('A-001')
       a1.status = '완료 후보'
-      a1.history.push(hist('신규', '완료 후보', 'agent', { evidence: [ev('00:01:10', LONG, '김대리')] }))
-      const a2 = mk('A-002', mt.id, '박대리', '검토 의견 정리해서 공유', '다음주 화요일까지', '2026-11-24', ev('00:00:40', '박대리, 검토 의견 정리해서 다음주 화요일까지 공유해주세요.', '팀장'))
+      a1.history.push(hist('신규', '완료 후보', 'agent', { evidence: [ev('00:01:10', LONG, 'speaker_2')] }))
+      const a2 = mk('A-002', mt.id, '박대리', '검토 의견 정리해서 공유', '다음주 화요일까지', '2026-11-24', ev('00:00:40', '박대리, 검토 의견 정리해서 다음주 화요일까지 공유해주세요.', 'speaker_1'))
       actions.set(a2.action_id, a2)
       return send(res, 200, {
         ...base, actions: [a2, view(a1)], new_actions: [a2], previous_meeting_ids: prev,
-        followup_results: [{ action_id: 'A-001', outcome: 'applied', from_status: '신규', to_status: '완료 후보', detail: '', reviewer_verdict: 'PASS', evidence: [ev('00:01:10', LONG, '김대리'), ev('00:01:30', '네, 맞습니다.', '팀장')] }],
+        followup_results: [{ action_id: 'A-001', outcome: 'applied', from_status: '신규', to_status: '완료 후보', detail: '', reviewer_verdict: 'PASS', evidence: [ev('00:01:10', LONG, 'speaker_2'), ev('00:01:30', '네, 맞습니다.', 'speaker_1')] }],
         execution: {
           mode: 'parallel', overlapped: true, reviewer: { PASS: 2 },
           agents: [

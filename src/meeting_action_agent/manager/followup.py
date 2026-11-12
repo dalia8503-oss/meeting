@@ -23,9 +23,9 @@ from meeting_action_agent.contracts import (
     receive_agent_output,
     validate,
 )
+from meeting_action_agent.speakers import confirmed_names, speaker_context_text
 from meeting_action_agent.state import Status
 
-_SPEAKER_LABEL = re.compile(r"^speaker_\d+$")
 # 완료 근거가 될 수 없는 발언 (거부 가드 전용). 완료 판정을 만드는 데는 쓰지 않는다.
 _QUESTION = re.compile(r"[?？]|나요|까요|ㅂ니까|언제|어떻게")
 _NEGATION = re.compile(r"못\s?(했|하|함|끝)|아직|않|안\s?(했|하|됐|됨)|미뤄|지연")
@@ -62,7 +62,8 @@ def select_followup_targets(store, current_meeting_id: str,
     ]
 
 
-def build_prompt(action: Mapping, transcript: Sequence[Mapping], retry: Optional[Mapping] = None) -> str:
+def build_prompt(action: Mapping, transcript: Sequence[Mapping], retry: Optional[Mapping] = None,
+                 speaker_map: Optional[Mapping] = None) -> str:
     """retry={"previous_result": 1차 FollowupResult, "reviewer_reasons": REJECT reasons} (T-09-7 재분석 1회)."""
     schema = (CONTRACTS_DIR / "followup-result.schema.json").read_text(encoding="utf-8")
     payload = {
@@ -87,14 +88,16 @@ def build_prompt(action: Mapping, transcript: Sequence[Mapping], retry: Optional
         "- 같은 단어가 있어도 다른 업무(예: 다른 도면)일 수 있다. 같은 업무인지 불명확하면 확신도 하 + 확인 필요.\n"
         "- 언급이 없으면 확인 필요 + 근거 빈 배열.\n"
         "- evidence는 transcript의 발언을 (meeting_id, timestamp, speaker, text) 그대로 복사한다. speaker_N을 이름으로 바꾸지 않는다.\n"
-        "- 담당자 이름은 발언 텍스트에 있거나 speaker가 확정된 이름일 때만 근거로 쓴다. 추측하지 않는다.\n\n"
+        "- 담당자 이름은 발언 텍스트에 있거나 사용자가 확인한 speaker_map에 있을 때만 근거로 쓴다. 추측하지 않는다.\n"
+        "- 완료 후보는 담당자 본인의 완료 발언이어야 한다. speaker_map이 없거나 그 화자가 미확인·다른 사람이면 완료 후보를 내지 않는다.\n\n"
         f"## 출력 스키마 (followup-result.schema.json)\n{schema}\n\n"
         "## INPUT\n" + json.dumps(payload, ensure_ascii=False, indent=1)
-        + "\n" + retry_text + "\nFollowupResult JSON 하나만 출력하라."
+        + "\n" + speaker_context_text(speaker_map) + retry_text + "\nFollowupResult JSON 하나만 출력하라."
     )
 
 
-def _check_evidence(result: Mapping, action: Mapping, transcript: Sequence[Mapping]) -> None:
+def _check_evidence(result: Mapping, action: Mapping, transcript: Sequence[Mapping],
+                    speaker_map: Optional[Mapping] = None) -> None:
     originals = {(u["meeting_id"], u["timestamp"], u["speaker"], u["text"]) for u in transcript}
     for q in result["evidence"]:
         if (q["meeting_id"], q["timestamp"], q["speaker"], q["text"]) not in originals:
@@ -108,15 +111,22 @@ def _check_evidence(result: Mapping, action: Mapping, transcript: Sequence[Mappi
             raise FollowupValidationError(f"질문 발언은 완료 근거가 아니다 ({q['timestamp']})")
         if _NEGATION.search(q["text"]):
             raise FollowupValidationError(f"미수행·지연 발언은 완료 근거가 아니다 ({q['timestamp']})")
-    # 이름 추측 방지: 미확정 화자 라벨(speaker_N)만 근거인데 담당자 이름이 발언에 없으면 확신 '상' 불가
+    # 담당자 본인의 완료 발언이어야 한다 (fail-closed). 본인 확인 근거는 셋 중 하나뿐이다:
+    #   발언 텍스트에 담당자 이름 / speaker가 이미 담당자 이름 / 사용자가 확인한 speaker_map이 담당자로 연결.
+    # speaker_map이 없거나(미확인) 다른 사람이면 speaker_N 라벨만으로는 담당자 본인을 증명할 수 없다.
     assignee = action.get("assignee")
-    labels_only = all(_SPEAKER_LABEL.match(q["speaker"]) for q in result["evidence"])
-    named = assignee and assignee != "확인 필요" and any(assignee in q["text"] for q in result["evidence"])
-    if labels_only and not named and result["confidence"] == "상":
-        raise FollowupValidationError("화자 라벨만으로 담당자 본인을 확신할 수 없다 (확신도 상 불가)")
+    if not assignee or assignee == "확인 필요":
+        return  # 담당자 미확정은 Safety Guard(CHK020)가 완료 후보를 막는다
+    names = confirmed_names(speaker_map)
+    self_confirmed = any(
+        assignee in q["text"] or q["speaker"] == assignee or names.get(q["speaker"]) == assignee
+        for q in result["evidence"])
+    if not self_confirmed:
+        raise FollowupValidationError("담당자 본인의 완료 발언임을 확인할 수 없다 (사용자 확인 화자 없음·미확인·다른 사람)")
 
 
-def validate_followup(result, action: Mapping, transcript: Sequence[Mapping]) -> None:
+def validate_followup(result, action: Mapping, transcript: Sequence[Mapping],
+                      speaker_map: Optional[Mapping] = None) -> None:
     """완료 가드·스키마(receive_agent_output) → meeting_id/action_id → 근거 실재·안전 가드."""
     receive_agent_output("followup-result", result)  # '완료'면 CompletionGuardError
     meeting_id = transcript[0]["meeting_id"]
@@ -124,7 +134,7 @@ def validate_followup(result, action: Mapping, transcript: Sequence[Mapping]) ->
         raise FollowupValidationError(f"meeting_id가 신규 회의와 다름: {result['meeting_id']} != {meeting_id}")
     if result["action_id"] != action["action_id"]:
         raise FollowupValidationError(f"action_id 불일치: {result['action_id']} != {action['action_id']}")
-    _check_evidence(result, action, transcript)
+    _check_evidence(result, action, transcript, speaker_map)
 
 
 def check_previous_actions(
@@ -134,6 +144,7 @@ def check_previous_actions(
     store,
     previous_meeting_ids: Optional[Sequence[str]] = None,
     meetings_dir=None,
+    speaker_map: Optional[Mapping] = None,
 ) -> FollowupReport:
     """현재 Transcript vs 이전 Action → FollowupResult 목록. Action은 변경하지 않는다.
 
@@ -152,10 +163,10 @@ def check_previous_actions(
 
     results, rejected = [], []
     for action in targets:
-        raw = runner(build_prompt(action, transcript))
+        raw = runner(build_prompt(action, transcript, speaker_map=speaker_map))
         try:
             result = json.loads(raw) if isinstance(raw, str) else raw
-            validate_followup(result, action, transcript)
+            validate_followup(result, action, transcript, speaker_map)
         except (json.JSONDecodeError, SchemaValidationError, FollowupValidationError) as e:
             rejected.append({"action_id": action["action_id"], "reason": str(e)})
             continue

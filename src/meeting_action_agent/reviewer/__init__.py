@@ -9,9 +9,10 @@
 import json
 import re
 from pathlib import Path
-from typing import Callable, Mapping, Union
+from typing import Callable, Mapping, Optional, Union
 
 from meeting_action_agent.contracts import CONTRACTS_DIR, SchemaValidationError, receive_agent_output
+from meeting_action_agent.speakers import speaker_context_text
 
 AGENT_DEFINITION = Path(__file__).resolve().parents[3] / ".claude" / "agents" / "reviewer.md"
 _NO_EVIDENCE_NEEDED = {"확인 필요", "미정"}
@@ -82,7 +83,8 @@ def review_candidate(
 
 # ----- T-09-7: FollowupResult 검증 (read-only) -----
 
-def build_followup_prompt(action: Mapping, transcript, result: Mapping, attempt: int = 0) -> str:
+def build_followup_prompt(action: Mapping, transcript, result: Mapping, attempt: int = 0,
+                          speaker_map: Optional[Mapping] = None) -> str:
     schema = (CONTRACTS_DIR / "review-result.schema.json").read_text(encoding="utf-8")
     payload = {"previous_action": dict(action), "transcript": list(transcript), "followup_result": dict(result)}
     return (
@@ -90,20 +92,21 @@ def build_followup_prompt(action: Mapping, transcript, result: Mapping, attempt:
         "PASS/REJECT와 사유만 낸다. 판정·근거·Action·상태·담당자·기한을 수정하거나 추측하지 않는다.\n"
         "- 판정이 근거와 일치하는가 / 근거가 transcript에 실재하는가\n"
         "- 완료 후보에 실제 완료형 표현이 있는가 (질문·제안·부정·미수행 표현을 완료로 오판하지 않았는가)\n"
-        "- 담당자를 추측하지 않았는가\n\n"
+        "- 담당자를 추측하지 않았는가 (화자 이름은 사용자 확인 speaker_map만 근거이며 직접 추론하지 않는다)\n\n"
         f"## 출력 스키마 (review-result.schema.json)\n{schema}\n\n"
         "## INPUT\n" + json.dumps(payload, ensure_ascii=False, indent=1)
+        + speaker_context_text(speaker_map)
         + f"\n\nattempt={attempt}. target은 type=followup, ref=action_id. 판정 JSON 하나만 출력하라."
     )
 
 
-def code_check_followup(action: Mapping, transcript, result: Mapping) -> list:
+def code_check_followup(action: Mapping, transcript, result: Mapping, speaker_map: Optional[Mapping] = None) -> list:
     """결정적 검증. 위반 사유 목록(빈 목록이면 통과). 입력은 변경하지 않는다."""
     from meeting_action_agent.manager.followup import FollowupValidationError, validate_followup
     from meeting_action_agent.state import CompletionGuardError
 
     try:
-        validate_followup(result, action, transcript)
+        validate_followup(result, action, transcript, speaker_map)
     except CompletionGuardError as e:
         return [{"code": "완료설정", "detail": str(e)}]
     except SchemaValidationError as e:
@@ -115,16 +118,17 @@ def code_check_followup(action: Mapping, transcript, result: Mapping) -> list:
 
 
 def review_followup(action: Mapping, transcript, result: Mapping,
-                    runner: Callable[[str], Union[str, dict]], *, attempt: int = 0) -> dict:
+                    runner: Callable[[str], Union[str, dict]], *, attempt: int = 0,
+                    speaker_map: Optional[Mapping] = None) -> dict:
     """FollowupResult 1건 판정. 입력은 변경하지 않는다 (복사본만 runner에 전달)."""
     import copy
 
     ref = result["action_id"]
-    failed = code_check_followup(action, transcript, result)
+    failed = code_check_followup(action, transcript, result, speaker_map)
     if failed:
         return {"target": {"type": "followup", "ref": ref}, "verdict": "REJECT", "reasons": failed, "attempt": attempt}
     raw = runner(build_followup_prompt(copy.deepcopy(dict(action)), copy.deepcopy(list(transcript)),
-                                       copy.deepcopy(dict(result)), attempt))
+                                       copy.deepcopy(dict(result)), attempt, speaker_map))
     try:
         verdict = json.loads(raw) if isinstance(raw, str) else raw
         receive_agent_output("review-result", verdict)
