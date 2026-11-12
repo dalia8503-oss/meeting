@@ -22,6 +22,24 @@ export interface MeetingCreated {
   status: 'uploaded'
 }
 
+export interface MeetingSummary {
+  meeting_id: string
+  title: string
+  meeting_date: string
+  created_at: string | null
+  analysis_status: 'uploaded' | 'analyzed'
+  action_count: number
+}
+
+/** 서버에 저장된 회의 목록 (이전 회의 후보). 실패하면 호출 측이 오류 상태로 처리한다. */
+export async function fetchMeetings(): Promise<MeetingSummary[]> {
+  const res = await fetch(`${API_BASE}/api/meetings`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const body = (await res.json()) as { meetings?: MeetingSummary[] }
+  if (!Array.isArray(body.meetings)) throw new Error('invalid response')
+  return body.meetings
+}
+
 const ERROR_MESSAGES: Record<string, string> = {
   missing_title: '회의명을 입력해 주세요.',
   missing_meeting_date: '회의일을 입력해 주세요.',

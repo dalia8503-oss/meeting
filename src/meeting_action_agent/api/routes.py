@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from . import service
 from .schemas import (
-    ActionView, AnalysisResult, AnalyzeRequest, HealthResponse, MeetingCreated, ReviewRequest, WithdrawRequest)
+    ActionView, AnalysisResult, AnalyzeRequest, HealthResponse, MeetingCreated, MeetingList, ReviewRequest, WithdrawRequest)
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
@@ -19,6 +19,15 @@ def _error(status: int, code: str, message: str) -> JSONResponse:
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return service.get_health()
+
+
+@router.get("/meetings", response_model=MeetingList)
+def list_meetings():
+    try:
+        return MeetingList(meetings=service.list_meetings())
+    except Exception:
+        log.exception("meeting list failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 
 # mode는 받지 않는다 (MAA_MODE 환경변수만 사용). 알 수 없는 폼 필드는 무시된다.

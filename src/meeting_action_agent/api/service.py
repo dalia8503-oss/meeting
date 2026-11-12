@@ -16,7 +16,7 @@ from ..state import CompletionGuardError, TransitionError
 from ..stt import SttError, TranscriptError
 from ..store import ActionStore
 from .mode import get_data_root, get_mode
-from .schemas import ActionView, AnalysisResult, HealthResponse, MeetingCreated
+from .schemas import ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingSummary
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 _CHUNK = 1 << 20
@@ -78,6 +78,38 @@ def create_meeting(title, meeting_date, filename, stream) -> MeetingCreated:
                            "지원하지 않거나 손상된 파일입니다. MP3 / WAV / M4A(최대 2시간)만 가능합니다.") from None
     return MeetingCreated(meeting_id=meeting_id, title=title, meeting_date=meeting_date,
                           audio_filename=Path(filename.replace("\\", "/")).name, status="uploaded")
+
+
+def list_meetings() -> list:
+    """저장된 회의 목록(이전 회의 후보 선택용). 저장 구조에서 읽을 수 있는 값만 쓰고 추정하지 않는다.
+    정렬: meeting_date 내림차순 → 등록 시각(audio.json recorded_at) 내림차순 → meeting_id."""
+    root = get_data_root()
+    meetings = root / "meetings"
+    if not meetings.is_dir():
+        return []
+    counts: dict = {}
+    for a in ActionStore(root / "actions" / "actions.json").load_all():
+        counts[a["meeting_id"]] = counts.get(a["meeting_id"], 0) + 1
+    out = []
+    for meta_path in meetings.glob("*.meta.json"):
+        try:
+            meta = _read_json(meta_path)
+            mid = safe_meeting_id(meta["meeting_id"])
+            if meta_path.name != f"{mid}.meta.json":
+                continue
+            record = meta_path.with_name(f"{mid}.audio.json")
+            created_at = _read_json(record).get("recorded_at") if record.is_file() else None
+            analyzed = _run_path(root, mid).is_file() or (
+                (meetings / f"{mid}.analysis.json").is_file() and (meetings / f"{mid}.review.json").is_file())
+            out.append(MeetingSummary(
+                meeting_id=mid, title=meta["title"], meeting_date=meta["meeting_date"], created_at=created_at,
+                analysis_status="analyzed" if analyzed else "uploaded", action_count=counts.get(mid, 0)))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue  # 손상된 항목 하나가 전체 목록을 막지 않게 한다.
+    out.sort(key=lambda m: m.meeting_id)
+    out.sort(key=lambda m: m.created_at or "", reverse=True)
+    out.sort(key=lambda m: m.meeting_date, reverse=True)
+    return out
 
 
 # ---------------------------------------------------------------- analyze (orchestration only)

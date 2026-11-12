@@ -1,8 +1,7 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react'
-import { analyzeMeeting, createMeeting, type ActionView, type AnalysisResult, type MeetingCreated } from './api'
+import { analyzeMeeting, createMeeting, fetchMeetings, type ActionView, type AnalysisResult, type MeetingCreated } from './api'
 import AnalysisView, { Progress, type Phase } from './AnalysisView'
-import PreviousMeetings from './PreviousMeetings'
-import { loadKnownMeetings, rememberMeeting, type KnownMeeting } from './knownMeetings'
+import PreviousMeetings, { type MeetingsLoad } from './PreviousMeetings'
 
 type State =
   | { s: 'idle' }
@@ -20,9 +19,17 @@ export default function MeetingForm() {
   const [drag, setDrag] = useState(false)
   const [state, setState] = useState<State>({ s: 'idle' })
   const input = useRef<HTMLInputElement>(null)
-  const [known, setKnown] = useState<KnownMeeting[]>(loadKnownMeetings)
+  const [prevLoad, setPrevLoad] = useState<MeetingsLoad>({ s: 'loading' })
   const [previousIds, setPreviousIds] = useState<string[]>([])
   const busy = state.s === 'uploading'
+
+  /** 서버의 회의 목록으로 이전 회의 후보를 (재)로드한다. 현재 회의는 후보에서 제외한다. 실패해도 분석은 계속 가능하다. */
+  const loadPrevious = () => {
+    setPrevLoad({ s: 'loading' })
+    return fetchMeetings()
+      .then((list) => setPrevLoad({ s: 'ok', meetings: list }))
+      .catch(() => setPrevLoad({ s: 'error' }))
+  }
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault()
@@ -42,6 +49,7 @@ export default function MeetingForm() {
     try {
       const meeting = await createMeeting({ title: title.trim(), meetingDate: date, file })
       setState({ s: 'success', meeting })
+      void loadPrevious() // 서버에 저장된 이전 회의 후보 로드
     } catch (err) {
       setState({ s: 'error', message: err instanceof Error ? err.message : '회의 등록에 실패했습니다.' })
     }
@@ -59,8 +67,8 @@ export default function MeetingForm() {
     try {
       // 이전 회의가 없으면 [] 를 보낸다 (null이 아님).
       const result = await analyzeMeeting(meeting.meeting_id, previousIds)
-      setKnown(rememberMeeting({ meeting_id: meeting.meeting_id, title: meeting.title, meeting_date: meeting.meeting_date }))
       setState({ s: 'success', meeting, result })
+      void loadPrevious() // 방금 분석한 회의를 다음 회의의 이전 회의 후보로 반영 (reload 없음)
     } catch (err) {
       setState({ s: 'success', meeting, error: err instanceof Error ? err.message : '회의 분석에 실패했습니다.' })
     }
@@ -99,7 +107,7 @@ export default function MeetingForm() {
         </section>
         {!state.result && (
           <PreviousMeetings
-            meetings={known.filter((k) => k.meeting_id !== state.meeting.meeting_id)}
+            load={prevLoad.s === 'ok' ? { s: 'ok', meetings: prevLoad.meetings.filter((m) => m.meeting_id !== state.meeting.meeting_id) } : prevLoad}
             selected={previousIds}
             onChange={setPreviousIds}
             disabled={!!state.analyzing}

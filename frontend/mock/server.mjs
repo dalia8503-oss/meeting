@@ -40,12 +40,22 @@ http
     if (req.method === 'OPTIONS') return send(res, 204, {})
     if (p === '/api/health') return send(res, 200, { status: 'ok', mode: 'demo', gemini_configured: false })
 
+    if (p === '/api/meetings' && req.method === 'GET') {
+      const list = [...meetings.values()]
+        .map((m) => ({
+          meeting_id: m.id, title: m.title, meeting_date: m.date, created_at: m.createdAt,
+          analysis_status: m.analyzed ? 'analyzed' : 'uploaded', action_count: m.analyzed ? 1 : 0,
+        }))
+        .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date) || b.created_at.localeCompare(a.created_at))
+      return send(res, 200, { meetings: list })
+    }
+
     if (p === '/api/meetings' && req.method === 'POST') {
       const raw = await readBody(req)
       const title = field(raw, 'title')
       const date = field(raw, 'meeting_date')
       const id = `${date.replaceAll('-', '')}-${String(++seq).padStart(8, '0')}`
-      meetings.set(id, { id, title, date })
+      meetings.set(id, { id, title, date, createdAt: now() })
       return send(res, 201, { meeting_id: id, title, meeting_date: date, audio_filename: 'demo.m4a', status: 'uploaded' })
     }
 

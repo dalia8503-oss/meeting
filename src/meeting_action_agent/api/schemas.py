@@ -17,6 +17,19 @@ class MeetingCreated(BaseModel):
     status: Literal["uploaded"]
 
 
+class MeetingSummary(BaseModel):
+    meeting_id: str
+    title: str
+    meeting_date: str
+    created_at: Optional[str] = None      # 등록 시각(audio.json recorded_at). 기록이 없으면 null
+    analysis_status: Literal["uploaded", "analyzed"]
+    action_count: int
+
+
+class MeetingList(BaseModel):
+    meetings: List[MeetingSummary]
+
+
 class SummaryItem(BaseModel):
     text: str
     evidence_timestamps: List[str]
