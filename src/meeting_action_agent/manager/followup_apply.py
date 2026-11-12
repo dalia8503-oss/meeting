@@ -8,17 +8,20 @@
 - 기한경과는 상태가 아니라 판정 보조 정보다. 기한 변경 제안은 기존 due_date를 바꾸지 않는다.
 - 기한경과·기한변경제안은 Action의 flags/flag_notes(기존 contract)에 부착하며 history note와 별개로 남긴다(중복 flag 없음).
 - 근거 없고 상태도 안 바뀌는 점검은 history 항목이 없으므로 flags도 쓰지 않는다.
+- 미언급(근거 없음) 점검은 기한경과여도 어떤 write도 하지 않는다(상태·flags·history 불변). "기한경과+미언급" 알림은 향후 별도 기능.
+- Reviewer REJECT 시 재분석은 1회만(apply_followup_with_retry): 최종 Reviewer PASS 이전에는 어떤 write도 없다.
 - 쓰기는 Action 1건당 ActionStore 호출 1회(검증 후 파일 1회 기록)다. 전체 회의 단위 트랜잭션은 범위 밖.
 """
 import copy
+import json
 from dataclasses import dataclass
 from datetime import date
 from typing import Callable, Mapping, Optional, Sequence, Union
 
 from meeting_action_agent.contracts import SchemaValidationError
-from meeting_action_agent.manager.followup import FollowupValidationError, validate_followup
+from meeting_action_agent.manager.followup import FollowupValidationError, build_prompt, validate_followup
 from meeting_action_agent.reviewer import review_followup
-from meeting_action_agent.state import Actor, Status, is_allowed
+from meeting_action_agent.state import Actor, CompletionGuardError, Status, is_allowed
 
 _NEEDS_CHECK = "확인 필요"
 _PENDING = "미정"
@@ -32,6 +35,8 @@ class ApplyOutcome:
     to_status: Optional[str] = None
     detail: str = ""
     review: Optional[dict] = None
+    followup_calls: int = 1       # Follow-up 판정 수(첫 결과 포함). 재분석 시 2
+    review_calls: int = 1         # Reviewer 호출 수
 
 
 def is_overdue(action: Mapping, current_meeting_date: str) -> bool:
@@ -89,25 +94,24 @@ def _note(action: Mapping, result: Mapping, current_meeting_date: str, guard_not
     return " | ".join(parts)
 
 
-def apply_followup(store, result: Mapping, transcript: Sequence[Mapping],
-                   reviewer_runner: Callable[[str], Union[str, dict]],
-                   current_meeting_date: str, *, attempt: int = 0) -> ApplyOutcome:
-    """FollowupResult 1건을 검증·Reviewer 통과 후 반영한다. 검증 실패는 예외로 전파하며 쓰기 없음."""
-    action = store.get(result["action_id"])  # 읽기만
-    current = action["status"]
-    if current == Status.DONE.value:
-        return ApplyOutcome(action["action_id"], "skipped", current, current, "완료 Action은 이행점검 반영 대상이 아님")
+def _review(action: Mapping, result: Mapping, transcript, reviewer_runner, attempt: int) -> dict:
+    """검증(실패 시 예외) → Reviewer. 쓰기 없음."""
+    validate_followup(result, action, transcript)
+    return review_followup(copy.deepcopy(action), transcript, copy.deepcopy(dict(result)),
+                           reviewer_runner, attempt=attempt)
 
-    validate_followup(result, action, transcript)  # 실패 시 예외, 쓰기 없음
-    review = review_followup(copy.deepcopy(action), transcript, copy.deepcopy(dict(result)),
-                             reviewer_runner, attempt=attempt)
-    if review["verdict"] != "PASS":
-        return ApplyOutcome(action["action_id"], "rejected", current, current, "Reviewer REJECT", review)
+
+def _commit(store, action: Mapping, result: Mapping, review: dict, current_meeting_date: str) -> ApplyOutcome:
+    """Reviewer PASS 후에만 호출한다. Safety Guard → 상태 변경 또는 재판정 1회."""
+    current = action["status"]
+    aid = action["action_id"]
+    evidence = copy.deepcopy(result["evidence"])
+    if not evidence:
+        # 미언급: 기한경과여도 flags·flag_notes·history·상태 모두 불변 (기한경과+미언급 알림은 별도 기능)
+        return ApplyOutcome(aid, "skipped", current, current, "미언급(근거 없음): Action 변경 없음", review)
 
     target, guard_note = _target_status(action, result)
     note = _note(action, result, current_meeting_date, guard_note)
-    evidence = copy.deepcopy(result["evidence"])
-    aid = action["action_id"]
     flags, flag_notes = _flag_updates(action, result, current_meeting_date)
 
     can_transition = (
@@ -116,14 +120,66 @@ def apply_followup(store, result: Mapping, transcript: Sequence[Mapping],
         and is_allowed(current, target, Actor.AGENT)
     )
     if can_transition:
-        store.change_status(aid, target, Actor.AGENT.value, evidence=evidence or None, note=note,
+        store.change_status(aid, target, Actor.AGENT.value, evidence=evidence, note=note,
                             flags=flags, flag_notes=flag_notes)
         return ApplyOutcome(aid, "applied", current, target, note, review)
-    if evidence:
-        store.record_reassessment(aid, evidence=evidence, note=note, flags=flags, flag_notes=flag_notes)
-        return ApplyOutcome(aid, "reassessed", current, current, note, review)
-    # 근거 없는 재판정은 기록할 수 없고 상태도 그대로다 (언급 없음 + 이미 확인 필요 등)
-    return ApplyOutcome(aid, "skipped", current, current, "근거 없음: 상태 변경·재판정 기록 없음", review)
+    store.record_reassessment(aid, evidence=evidence, note=note, flags=flags, flag_notes=flag_notes)
+    return ApplyOutcome(aid, "reassessed", current, current, note, review)
+
+
+def apply_followup(store, result: Mapping, transcript: Sequence[Mapping],
+                   reviewer_runner: Callable[[str], Union[str, dict]],
+                   current_meeting_date: str, *, attempt: int = 0) -> ApplyOutcome:
+    """FollowupResult 1건을 검증·Reviewer 통과 후 반영한다. 검증 실패는 예외로 전파하며 쓰기 없음."""
+    action = store.get(result["action_id"])  # 읽기만
+    current = action["status"]
+    if current == Status.DONE.value:
+        return ApplyOutcome(action["action_id"], "skipped", current, current, "완료 Action은 이행점검 반영 대상이 아님")
+    review = _review(action, result, transcript, reviewer_runner, attempt)
+    if review["verdict"] != "PASS":
+        return ApplyOutcome(action["action_id"], "rejected", current, current, "Reviewer REJECT", review)
+    return _commit(store, action, result, review, current_meeting_date)
+
+
+def apply_followup_with_retry(store, first_result: Mapping, transcript: Sequence[Mapping],
+                              followup_runner: Callable[[str], Union[str, dict]],
+                              reviewer_runner: Callable[[str], Union[str, dict]],
+                              current_meeting_date: str) -> ApplyOutcome:
+    """T-09-7. 첫 FollowupResult → Reviewer #1. REJECT면 Follow-up 재분석 딱 1회 → Reviewer #2. 최종 PASS만 apply.
+
+    - 호출 상한: Follow-up 판정 2회(첫 결과 + 재분석 1), Reviewer 2회. 그 이상은 없다.
+    - 재분석 prompt에는 Previous Action·Current Transcript·1차 결과·Reviewer REJECT 사유가 들어간다.
+      사유는 참고정보일 뿐이고, 2차 결과도 1차와 같은 validate_followup을 전부 다시 통과해야 한다.
+    - 2차 결과가 invalid면 Reviewer #2·3차 분석 없이 실패 종료한다. 최종 REJECT/실패면 store는 불변이다.
+    - 첫 결과가 invalid면(Reviewer 판정 없음) 재분석 없이 예외를 전파한다(apply_followup과 동일).
+    """
+    action = store.get(first_result["action_id"])  # 읽기만
+    current = action["status"]
+    aid = action["action_id"]
+    if current == Status.DONE.value:
+        return ApplyOutcome(aid, "skipped", current, current, "완료 Action은 이행점검 반영 대상이 아님")
+
+    review = _review(action, first_result, transcript, reviewer_runner, 0)
+    if review["verdict"] == "PASS":
+        return _commit(store, action, first_result, review, current_meeting_date)
+
+    retry = {"previous_result": copy.deepcopy(dict(first_result)),
+             "reviewer_reasons": copy.deepcopy(review["reasons"])}
+    raw = followup_runner(build_prompt(copy.deepcopy(action), copy.deepcopy(list(transcript)), retry))
+    try:
+        second = json.loads(raw) if isinstance(raw, str) else raw
+        validate_followup(second, action, transcript)  # 1차와 동일한 전체 검증
+    except (json.JSONDecodeError, SchemaValidationError, FollowupValidationError, CompletionGuardError) as e:
+        return ApplyOutcome(aid, "rejected", current, current, f"재분석 결과 invalid: {e}", review,
+                            followup_calls=2, review_calls=1)
+
+    review2 = _review(action, second, transcript, reviewer_runner, 1)
+    if review2["verdict"] != "PASS":
+        return ApplyOutcome(aid, "rejected", current, current, "Reviewer REJECT (재분석 후)", review2,
+                            followup_calls=2, review_calls=2)
+    out = _commit(store, action, second, review2, current_meeting_date)
+    return ApplyOutcome(out.action_id, out.outcome, out.from_status, out.to_status, out.detail, out.review,
+                        followup_calls=2, review_calls=2)
 
 
 def apply_followups(store, results: Sequence[Mapping], transcript: Sequence[Mapping],
@@ -134,5 +190,18 @@ def apply_followups(store, results: Sequence[Mapping], transcript: Sequence[Mapp
         try:
             outcomes.append(apply_followup(store, r, transcript, reviewer_runner, current_meeting_date))
         except (FollowupValidationError, SchemaValidationError) as e:
+            outcomes.append(ApplyOutcome(r.get("action_id", "?"), "rejected", detail=str(e)))
+    return outcomes
+
+
+def apply_followups_with_retry(store, results: Sequence[Mapping], transcript: Sequence[Mapping],
+                               followup_runner, reviewer_runner, current_meeting_date: str) -> list:
+    """Action별 독립 retry. 한 건의 실패·REJECT가 다른 Action 반영을 막지 않는다."""
+    outcomes = []
+    for r in results:
+        try:
+            outcomes.append(apply_followup_with_retry(store, r, transcript, followup_runner, reviewer_runner,
+                                                      current_meeting_date))
+        except (FollowupValidationError, SchemaValidationError, CompletionGuardError) as e:
             outcomes.append(ApplyOutcome(r.get("action_id", "?"), "rejected", detail=str(e)))
     return outcomes

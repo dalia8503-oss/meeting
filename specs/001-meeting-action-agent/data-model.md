@@ -164,7 +164,7 @@ Meeting Analyst 출력. `key_discussions`, `decisions`, `open_issues`, `needs_co
 - **자기 전이는 상태 전이가 아니다.** 상태 변경 경로(`change_status`)는 이를 거부하고, 상태가 유지되는 재판정은 별도 경로(`record_reassessment`)가 `kind: 재판정` history 항목으로 남긴다.
 - **완료 후보는 사람의 최종 판단 대기 상태다.** Agent는 상태를 바꿀 수 없고 재판정(추가 근거) 기록만 남긴다. 완료 후보도 이행점검 대상이다.
 - 철회 후 남아 있는 `approved_by_human`은 재완료의 승인으로 인정하지 않는다. `완료` 전이는 그 요청에 새로 제출된 승인으로만 가능하다. 이전 승인(현재 값·history 스냅샷)과 승인자·시각·근거가 모두 같은 값의 재제출도 새 승인으로 인정하지 않는다.
-- 이행 판정 → 상태 매핑: 완료형 발언 → `완료 후보`, 진행·부분 완료 → `진행중`, 미수행·지연 명시 → `미완료`, 언급 없음·확신도 하·`low_confidence`만 근거·상충·철회 → `확인 필요`.
+- 이행 판정 → 상태 매핑: 완료형 발언 → `완료 후보`, 진행·부분 완료 → `진행중`, 미수행·지연 명시 → `미완료`, 확신도 하·`low_confidence`만 근거·상충·철회 → `확인 필요`(근거 첨부). 언급 없음은 상태·flags·history 불변(8장 #17).
 
 ## 4. 값 규칙 요약 (SPEC 5.4)
 
@@ -251,3 +251,4 @@ SPEC에 필드 수준 정의가 없어 이 문서와 `contracts/`에서 임시�
 | 14 | 완료 Action에 재판정 기록 시도 | **결정됨**: 완료 Action은 이행점검·재판정 대상에서 제외하므로 `record_reassessment`는 거부(`TransitionError`) | 2026-11-11 정책 결정 |
 | 15 | 재판정·철회 입력 누락(근거·사유·철회자 이름 없음)의 오류 종류 | 미정 (스키마는 거부, 예외 타입은 구현에서 정함) | T-03-3 착수 전 확인 |
 | 16 | FollowupResult의 `confidence`·`proposed_status` 보존 방식 | **결정됨 (2026-11-12)**: FollowupResult는 회의별 immutable snapshot. `meetings/<meeting_id>.followups.json`에 **create-only**(덮어쓰기 금지, temp 작성 → atomic publish, 기존 파일이면 `FileExistsError`)로 저장한다. 재분석이 필요해지면 overwrite가 아니라 별도 version/reanalysis 정책으로 설계한다(현재 versioning 없음). history의 `note`에는 제안 상태·확신도·사유를 요약해 남긴다 | `manager/followup.py save_followups`, `manager/followup_apply.py` |
+| 17 | 이행점검 REJECT 재분석·미언급 처리 | **결정됨 (2026-11-12)**: Reviewer REJECT 시 Follow-up 재분석은 Action당 1회(분석 최대 2·Reviewer 최대 2), 최종 PASS 이전에는 write 없음. 현재 회의에서 관련 발언·근거·판정이 없는 Action은 `기한경과`여도 status·flags·flag_notes·history를 바꾸지 않는다(`기한경과`+미언급 알림은 향후 별도 기능) | `manager/followup_apply.py` |

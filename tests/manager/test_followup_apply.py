@@ -117,12 +117,13 @@ def test_not_done_pass(make):
     assert store.get("A-001")["status"] == "미완료"
 
 
-# 5. 확인 필요: 신규 → 확인 필요 (언급 없음, 근거 없음)
-def test_needs_check_without_evidence_changes_status(make):
+# 5. 미언급(근거 없음): 어떤 write도 없다 (T-09-7 정책 7: 상태·flags·history 불변)
+def test_no_mention_without_evidence_writes_nothing(make):
     store = make()
+    before = _snapshot(store)
     out = apply_followup(store, _result("", "확인 필요", conf="하", evidence=False), _tr("무관한 발언"),
                          pass_runner(), CUR_DATE)
-    assert out.outcome == "applied" and store.get("A-001")["status"] == "확인 필요"
+    assert out.outcome == "skipped" and _snapshot(store) == before
 
 
 def test_needs_check_without_evidence_on_needs_check_writes_nothing(make):
@@ -179,14 +180,13 @@ def test_overdue_invalid_date_is_false(new_action):
     assert is_overdue(_action(new_action, due_norm="not-a-date"), CUR_DATE) is False
 
 
-def test_overdue_alone_does_not_make_not_done(make):
+def test_overdue_alone_does_not_change_anything(make):
     store = make(due_norm="2026-11-13")  # 현재 회의일 11-17 > 기한 → overdue
     assert is_overdue(store.get("A-001"), CUR_DATE)
+    before = _snapshot(store)
     apply_followup(store, _result("", "확인 필요", conf="하", evidence=False), _tr("무관한 발언"),
                    pass_runner(), CUR_DATE)
-    a = store.get("A-001")
-    assert a["status"] == "확인 필요" and a["status"] != "미완료"
-    assert a["due_date_normalized"] == "2026-11-13"
+    assert _snapshot(store) == before  # 미언급+기한경과: status·flags·history 불변 (정책 7)
 
 
 def test_overdue_with_done_evidence_can_be_candidate_and_notes_overdue(make):

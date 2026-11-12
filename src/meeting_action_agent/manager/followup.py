@@ -8,7 +8,7 @@
 - 계약(followup-result.schema.json)의 proposed_status 값만 쓴다. 새 enum 없음. '완료'는 낼 수 없다.
 - 판정(의미 판단)은 runner가 한다. 이 모듈의 코드는 거부 방향의 가드만 둔다(키워드로 완료를 만들지 않는다).
 - 검증을 통과하지 못한 Action 판정은 `rejected`로 돌려주고 저장하지 않는다 (보완·추측 없음).
-- Reviewer(LLM) 연동은 T-09-7 범위다. 여기서는 Reviewer의 코드 검증에 해당하는 근거 실재 대조만 한다.
+- Reviewer(LLM) 연동·재분석 루프는 followup_apply(T-09-7)가 한다. 여기서는 Reviewer의 코드 검증에 해당하는 근거 실재 대조만 한다.
 """
 import json
 import os
@@ -62,13 +62,23 @@ def select_followup_targets(store, current_meeting_id: str,
     ]
 
 
-def build_prompt(action: Mapping, transcript: Sequence[Mapping]) -> str:
+def build_prompt(action: Mapping, transcript: Sequence[Mapping], retry: Optional[Mapping] = None) -> str:
+    """retry={"previous_result": 1차 FollowupResult, "reviewer_reasons": REJECT reasons} (T-09-7 재분석 1회)."""
     schema = (CONTRACTS_DIR / "followup-result.schema.json").read_text(encoding="utf-8")
     payload = {
         "action": {k: action[k] for k in ("action_id", "meeting_id", "assignee", "task", "due_date",
                                           "status", "evidence", "timestamp")},
         "transcript": list(transcript),
     }
+    retry_text = ""
+    if retry is not None:
+        retry_text = (
+            "\n## 재분석 참고정보 (Reviewer REJECT)\n"
+            "아래는 1차 판정과 Reviewer의 REJECT 사유다. 재분석의 참고정보일 뿐이며 "
+            "evidence·status·flag의 근거로 사용하지 않는다. 최종 evidence는 반드시 transcript 원문에서만 복사한다.\n"
+            + json.dumps({"previous_result": retry["previous_result"], "reviewer_reasons": retry["reviewer_reasons"]},
+                         ensure_ascii=False, indent=1) + "\n"
+        )
     return (
         "# 이행점검 (Action Manager)\n"
         "이전 회의의 Action 1건이 신규 회의 녹취에서 어떻게 언급되는지 판정한다.\n"
@@ -80,7 +90,7 @@ def build_prompt(action: Mapping, transcript: Sequence[Mapping]) -> str:
         "- 담당자 이름은 발언 텍스트에 있거나 speaker가 확정된 이름일 때만 근거로 쓴다. 추측하지 않는다.\n\n"
         f"## 출력 스키마 (followup-result.schema.json)\n{schema}\n\n"
         "## INPUT\n" + json.dumps(payload, ensure_ascii=False, indent=1)
-        + "\n\nFollowupResult JSON 하나만 출력하라."
+        + "\n" + retry_text + "\nFollowupResult JSON 하나만 출력하라."
     )
 
 
