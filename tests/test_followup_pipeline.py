@@ -301,3 +301,65 @@ def test_no_previous_actions_only_new(store_path):
 
 
 # 23. 기존 vertical slice는 tests/test_vertical_slice.py 가 그대로 통과해야 한다 (pipeline 기존 함수 미변경)
+
+
+# ReviewOutputError 격리: invalid Reviewer 출력은 해당 Action만 fail-closed rejected (retry·write 없음)
+def _invalid_for(bad_ids, inner):
+    def runner(prompt):
+        ref = _json_after(prompt, "## INPUT\n")["followup_result"]["action_id"]
+        if ref in bad_ids:
+            return "이건 JSON이 아님"
+        return inner(prompt)
+    return runner
+
+
+def _two_prev(store, new_action):
+    store.create(_prev_action(new_action, "A-002", assignee="이과장", task="자재 발주", due="목요일",
+                              due_norm="2026-11-12"))
+
+
+def test_invalid_reviewer_output_isolated_to_that_action(store, new_action):
+    _two_prev(store, new_action)
+    before1 = json.dumps(store.get("A-001"), sort_keys=True)
+    a2_done = _followup("A-002", TS_DONE, "김대리", DONE_TEXT)
+    fu_log = []
+    r = run_meeting_pipeline(
+        TRANSCRIPT, analyst_runner=analyst([_candidate()]), candidate_reviewer_runner=candidate_reviewer(),
+        followup_runner=followup_runner({"A-001": A1_DONE, "A-002": a2_done}, fu_log),
+        followup_reviewer_runner=_invalid_for({"A-001"}, followup_reviewer({"A-002": "PASS"})),
+        store=store, metadata=META)
+    assert json.dumps(store.get("A-001"), sort_keys=True) == before1  # status·flags·flag_notes·history 불변
+    assert store.get("A-002")["status"] == "완료 후보"                  # 다른 Previous Action은 정상 반영
+    assert {o.action_id: o.outcome for o in r.followup_outcomes} == {"A-001": "rejected", "A-002": "applied"}
+    assert sorted(fu_log) == ["A-001", "A-002"]                        # 1차 분석만, retry(재분석) 없음
+    assert r.new_actions_error is None and store.get("A-003")["assignee"] == "박대리"  # 신규 Action 정상 생성
+
+
+def test_invalid_reviewer_output_after_retry_also_isolated(store):
+    prog = _followup("A-001", TS_DONE, "김대리", DONE_TEXT, status="진행중", conf="중")
+    seq = iter(["REJECT", "invalid"])
+
+    def reviewer(prompt):  # 1차는 정상 REJECT, 2차 Reviewer 출력은 invalid
+        ref = _json_after(prompt, "## INPUT\n")["followup_result"]["action_id"]
+        if next(seq) == "invalid":
+            return "{}"
+        return json.dumps({"target": {"type": "followup", "ref": ref}, "verdict": "REJECT",
+                           "reasons": [{"code": "판정비도출", "detail": "x"}], "attempt": 0})
+    before = json.dumps(store.get("A-001"), sort_keys=True)
+    r = run_meeting_pipeline(
+        TRANSCRIPT, analyst_runner=analyst([_candidate()]), candidate_reviewer_runner=candidate_reviewer(),
+        followup_runner=followup_runner({"A-001": [prog, prog]}), followup_reviewer_runner=reviewer,
+        store=store, metadata=META)
+    assert [o.outcome for o in r.followup_outcomes] == ["rejected"]
+    assert json.dumps(store.get("A-001"), sort_keys=True) == before
+    assert store.get("A-002")["assignee"] == "박대리"
+
+
+def test_unexpected_runtime_error_is_not_swallowed(store):
+    def boom(prompt):
+        raise RuntimeError("예상 밖 오류")
+    with pytest.raises(RuntimeError):
+        run_meeting_pipeline(
+            TRANSCRIPT, analyst_runner=analyst([_candidate()]), candidate_reviewer_runner=candidate_reviewer(),
+            followup_runner=followup_runner({"A-001": A1_DONE}), followup_reviewer_runner=boom,
+            store=store, metadata=META)

@@ -20,7 +20,7 @@ from typing import Callable, Mapping, Optional, Sequence, Union
 
 from meeting_action_agent.contracts import SchemaValidationError
 from meeting_action_agent.manager.followup import FollowupValidationError, build_prompt, validate_followup
-from meeting_action_agent.reviewer import review_followup
+from meeting_action_agent.reviewer import ReviewOutputError, review_followup
 from meeting_action_agent.state import Actor, CompletionGuardError, Status, is_allowed
 
 _NEEDS_CHECK = "확인 필요"
@@ -204,4 +204,9 @@ def apply_followups_with_retry(store, results: Sequence[Mapping], transcript: Se
                                                       current_meeting_date))
         except (FollowupValidationError, SchemaValidationError, CompletionGuardError) as e:
             outcomes.append(ApplyOutcome(r.get("action_id", "?"), "rejected", detail=str(e)))
+        except ReviewOutputError as e:
+            # Reviewer 출력 자체가 invalid(정상 REJECT 아님): 해당 Action만 fail-closed. write·retry 없음.
+            # 이 예외만 격리한다 — store write 실패·프로그램 오류 등은 삼키지 않는다.
+            outcomes.append(ApplyOutcome(r.get("action_id", "?"), "rejected",
+                                         detail=f"Reviewer 출력 invalid(fail-closed): {e}"))
     return outcomes
