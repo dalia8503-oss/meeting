@@ -141,27 +141,43 @@ def apply_followup(store, result: Mapping, transcript: Sequence[Mapping],
     return _commit(store, action, result, review, current_meeting_date)
 
 
-def apply_followup_with_retry(store, first_result: Mapping, transcript: Sequence[Mapping],
-                              followup_runner: Callable[[str], Union[str, dict]],
-                              reviewer_runner: Callable[[str], Union[str, dict]],
-                              current_meeting_date: str) -> ApplyOutcome:
-    """T-09-7. 첫 FollowupResult → Reviewer #1. REJECT면 Follow-up 재분석 딱 1회 → Reviewer #2. 최종 PASS만 apply.
+@dataclass(frozen=True)
+class PreparedFollowup:
+    """Reviewer(+재분석 1회)까지 끝난 Follow-up 1건. read-only 산출물이다 — store write는 commit_prepared가 한다.
 
+    final이 있으면 더 쓸 것이 없는 종결 결과(skipped | rejected)이고, 없으면 PASS라 commit 대상이다.
+    """
+    action_id: str
+    action: Optional[dict] = None       # 점검 시점의 Action 스냅샷 (commit이 그대로 사용)
+    result: Optional[dict] = None       # 최종 PASS된 FollowupResult
+    review: Optional[dict] = None
+    followup_calls: int = 1
+    review_calls: int = 1
+    final: Optional[ApplyOutcome] = None
+
+
+def prepare_followup_with_retry(store, first_result: Mapping, transcript: Sequence[Mapping],
+                                followup_runner: Callable[[str], Union[str, dict]],
+                                reviewer_runner: Callable[[str], Union[str, dict]]) -> PreparedFollowup:
+    """T-09-7의 검증 구간. 첫 FollowupResult → Reviewer #1. REJECT면 Follow-up 재분석 딱 1회 → Reviewer #2.
+
+    - store는 읽기만 한다(write 없음). 따라서 다른 Branch와 동시에 실행해도 파일 write 경합이 없다.
     - 호출 상한: Follow-up 판정 2회(첫 결과 + 재분석 1), Reviewer 2회. 그 이상은 없다.
     - 재분석 prompt에는 Previous Action·Current Transcript·1차 결과·Reviewer REJECT 사유가 들어간다.
       사유는 참고정보일 뿐이고, 2차 결과도 1차와 같은 validate_followup을 전부 다시 통과해야 한다.
-    - 2차 결과가 invalid면 Reviewer #2·3차 분석 없이 실패 종료한다. 최종 REJECT/실패면 store는 불변이다.
+    - 2차 결과가 invalid면 Reviewer #2·3차 분석 없이 실패 종료한다.
     - 첫 결과가 invalid면(Reviewer 판정 없음) 재분석 없이 예외를 전파한다(apply_followup과 동일).
     """
     action = store.get(first_result["action_id"])  # 읽기만
     current = action["status"]
     aid = action["action_id"]
     if current == Status.DONE.value:
-        return ApplyOutcome(aid, "skipped", current, current, "완료 Action은 이행점검 반영 대상이 아님")
+        return PreparedFollowup(aid, final=ApplyOutcome(
+            aid, "skipped", current, current, "완료 Action은 이행점검 반영 대상이 아님"))
 
     review = _review(action, first_result, transcript, reviewer_runner, 0)
     if review["verdict"] == "PASS":
-        return _commit(store, action, first_result, review, current_meeting_date)
+        return PreparedFollowup(aid, action, dict(first_result), review)
 
     retry = {"previous_result": copy.deepcopy(dict(first_result)),
              "reviewer_reasons": copy.deepcopy(review["reasons"])}
@@ -170,16 +186,34 @@ def apply_followup_with_retry(store, first_result: Mapping, transcript: Sequence
         second = json.loads(raw) if isinstance(raw, str) else raw
         validate_followup(second, action, transcript)  # 1차와 동일한 전체 검증
     except (json.JSONDecodeError, SchemaValidationError, FollowupValidationError, CompletionGuardError) as e:
-        return ApplyOutcome(aid, "rejected", current, current, f"재분석 결과 invalid: {e}", review,
-                            followup_calls=2, review_calls=1)
+        return PreparedFollowup(aid, final=ApplyOutcome(
+            aid, "rejected", current, current, f"재분석 결과 invalid: {e}", review, followup_calls=2, review_calls=1))
 
     review2 = _review(action, second, transcript, reviewer_runner, 1)
     if review2["verdict"] != "PASS":
-        return ApplyOutcome(aid, "rejected", current, current, "Reviewer REJECT (재분석 후)", review2,
-                            followup_calls=2, review_calls=2)
-    out = _commit(store, action, second, review2, current_meeting_date)
+        return PreparedFollowup(aid, final=ApplyOutcome(
+            aid, "rejected", current, current, "Reviewer REJECT (재분석 후)", review2,
+            followup_calls=2, review_calls=2))
+    return PreparedFollowup(aid, action, dict(second), review2, followup_calls=2, review_calls=2)
+
+
+def commit_prepared(store, prepared: PreparedFollowup, current_meeting_date: str) -> ApplyOutcome:
+    """PASS된 PreparedFollowup을 반영한다(Safety Guard → 상태 변경/재판정 1회). 종결 결과면 그대로 반환."""
+    if prepared.final is not None:
+        return prepared.final
+    out = _commit(store, prepared.action, prepared.result, prepared.review, current_meeting_date)
     return ApplyOutcome(out.action_id, out.outcome, out.from_status, out.to_status, out.detail, out.review,
-                        followup_calls=2, review_calls=2)
+                        followup_calls=prepared.followup_calls, review_calls=prepared.review_calls)
+
+
+def apply_followup_with_retry(store, first_result: Mapping, transcript: Sequence[Mapping],
+                              followup_runner: Callable[[str], Union[str, dict]],
+                              reviewer_runner: Callable[[str], Union[str, dict]],
+                              current_meeting_date: str) -> ApplyOutcome:
+    """T-09-7. 검증 구간(prepare_followup_with_retry) → 최종 PASS만 반영(commit_prepared)."""
+    return commit_prepared(
+        store, prepare_followup_with_retry(store, first_result, transcript, followup_runner, reviewer_runner),
+        current_meeting_date)
 
 
 def apply_followups(store, results: Sequence[Mapping], transcript: Sequence[Mapping],
@@ -209,4 +243,37 @@ def apply_followups_with_retry(store, results: Sequence[Mapping], transcript: Se
             # 이 예외만 격리한다 — store write 실패·프로그램 오류 등은 삼키지 않는다.
             outcomes.append(ApplyOutcome(r.get("action_id", "?"), "rejected",
                                          detail=f"Reviewer 출력 invalid(fail-closed): {e}"))
+    return outcomes
+
+
+_ISOLATED = (FollowupValidationError, SchemaValidationError, CompletionGuardError)
+
+
+def prepare_followups_with_retry(store, results: Sequence[Mapping], transcript: Sequence[Mapping],
+                                 followup_runner, reviewer_runner) -> list:
+    """Action별 독립 검증 구간(read-only). 실패·REJECT·Reviewer 출력 invalid는 해당 Action만 rejected로 격리한다.
+
+    apply_followups_with_retry와 같은 격리 정책이며(그 외 예외는 삼키지 않는다) store write가 없다.
+    """
+    prepared = []
+    for r in results:
+        aid = r.get("action_id", "?")
+        try:
+            prepared.append(prepare_followup_with_retry(store, r, transcript, followup_runner, reviewer_runner))
+        except _ISOLATED as e:
+            prepared.append(PreparedFollowup(aid, final=ApplyOutcome(aid, "rejected", detail=str(e))))
+        except ReviewOutputError as e:
+            prepared.append(PreparedFollowup(aid, final=ApplyOutcome(
+                aid, "rejected", detail=f"Reviewer 출력 invalid(fail-closed): {e}")))
+    return prepared
+
+
+def commit_prepared_followups(store, prepared: Sequence[PreparedFollowup], current_meeting_date: str) -> list:
+    """검증이 끝난 Follow-up을 순서대로(단일 스레드) 반영한다. 반영 중 도메인 검증 실패는 해당 Action만 rejected."""
+    outcomes = []
+    for p in prepared:
+        try:
+            outcomes.append(commit_prepared(store, p, current_meeting_date))
+        except _ISOLATED as e:
+            outcomes.append(ApplyOutcome(p.action_id, "rejected", detail=str(e)))
     return outcomes

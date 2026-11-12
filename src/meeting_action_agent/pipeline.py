@@ -61,6 +61,21 @@ class ReviewedResult:
     analysis: Optional[dict] = None  # 검증을 통과한 MeetingAnalysis (표시·저장용, 수정 없음)
 
 
+def _review_groups(transcript, analysis, reviewer_runner):
+    """후보 그룹별 Reviewer 판정(read-only, lazy). (group, candidate, utterance, verdicts)를 낸다."""
+    for group in _group(analysis["action_candidates"]):
+        candidate = _relink_extra(group[0], transcript)
+        utterance = relink_utterance(candidate, transcript)
+        verdicts = [review_candidate(_relink_extra(c, transcript), utterance, reviewer_runner) for c in group]
+        yield group, candidate, utterance, verdicts
+
+
+def _convert_group(group, candidate, utterance, *, store, metadata):
+    mentions = list(dict.fromkeys(c["assignee"] for c in group)) if len(group) > 1 else None
+    return convert_candidate(candidate, utterance=utterance, mentions=mentions, metadata=metadata,
+                             reviewer_passed=True, store=store)
+
+
 def extract_review_convert(
     transcript: Sequence[Mapping],
     analyst_runner: Callable[[str], Union[str, dict]],
@@ -72,21 +87,43 @@ def extract_review_convert(
     """Analyst → Reviewer → (PASS만) convert_candidate. REJECT는 정상 Action 경로로 보내지 않는다."""
     analysis = analyze_transcript(transcript, analyst_runner)
     outcomes, reviews, rejected = [], [], []
-    for group in _group(analysis["action_candidates"]):
-        candidate = _relink_extra(group[0], transcript)
-        utterance = relink_utterance(candidate, transcript)
-        verdicts = [
-            review_candidate(_relink_extra(c, transcript), utterance, reviewer_runner) for c in group
-        ]
+    for group, candidate, utterance, verdicts in _review_groups(transcript, analysis, reviewer_runner):
         reviews.extend(verdicts)
         if any(v["verdict"] == "REJECT" for v in verdicts):
             rejected.extend(group)
             continue
-        mentions = list(dict.fromkeys(c["assignee"] for c in group)) if len(group) > 1 else None
-        result = convert_candidate(candidate, utterance=utterance, mentions=mentions, metadata=metadata,
-                                   reviewer_passed=True, store=store)
-        outcomes.extend(result.outcomes)
+        outcomes.extend(_convert_group(group, candidate, utterance, store=store, metadata=metadata).outcomes)
     return ReviewedResult(ConversionResult(tuple(outcomes)), tuple(reviews), tuple(rejected), analysis)
+
+
+@dataclass(frozen=True)
+class ReviewedAnalysis:
+    """Analyst → Reviewer까지만 끝난 read-only 산출물. store를 건드리지 않아 다른 Branch와 동시에 만들 수 있다."""
+    analysis: dict
+    approved: tuple   # (group, candidate, utterance) — Reviewer PASS만
+    reviews: tuple
+    rejected: tuple
+
+
+def analyze_and_review(transcript: Sequence[Mapping], analyst_runner, reviewer_runner) -> ReviewedAnalysis:
+    """store 없이 분석·검증만 한다 (Orchestrator의 병렬 구간)."""
+    analysis = analyze_transcript(transcript, analyst_runner)
+    approved, reviews, rejected = [], [], []
+    for group, candidate, utterance, verdicts in _review_groups(transcript, analysis, reviewer_runner):
+        reviews.extend(verdicts)
+        if any(v["verdict"] == "REJECT" for v in verdicts):
+            rejected.extend(group)
+        else:
+            approved.append((group, candidate, utterance))
+    return ReviewedAnalysis(analysis, tuple(approved), tuple(reviews), tuple(rejected))
+
+
+def convert_reviewed(reviewed: ReviewedAnalysis, *, store, metadata: Mapping) -> ReviewedResult:
+    """검증된 후보만 순서대로 convert_candidate (store write는 이 단계에서만, 단일 스레드)."""
+    outcomes = []
+    for group, candidate, utterance in reviewed.approved:
+        outcomes.extend(_convert_group(group, candidate, utterance, store=store, metadata=metadata).outcomes)
+    return ReviewedResult(ConversionResult(tuple(outcomes)), reviewed.reviews, reviewed.rejected, reviewed.analysis)
 
 
 @dataclass(frozen=True)
