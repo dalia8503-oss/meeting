@@ -137,3 +137,20 @@ def test_prepare_followup_passes_map_to_reviewer_prompt(store):
     # 같은 결과도 매핑 없이는 Reviewer 이전 코드 검증에서 막힌다
     with pytest.raises(Exception):
         prepare_followup_with_retry(store, first, TRANSCRIPT, _done_runner(), reviewer, None)
+
+
+# 데모 E2E에서 발견: STT 담당자 "김 대리"(띄어쓰기) vs 사용자가 입력한 화자 이름 "김대리" → 같은 이름으로 본다.
+def test_whitespace_only_difference_is_same_person(store_path, new_action):
+    s = ActionStore(store_path)
+    a = copy.deepcopy(new_action)
+    a.update(action_id="A-001", meeting_id=PREV, assignee="김 대리", task="도면 수정해서 공유",
+             due_date="금요일", due_date_normalized=None, status="신규")
+    s.create(a)
+    r = _check(s, MAP_KIM)
+    assert len(r.results) == 1 and r.results[0]["proposed_status"] == "완료 후보"
+
+
+# 글자가 다르면 띄어쓰기를 무시해도 다른 사람이다 (fail-closed 유지).
+def test_different_name_still_rejected(store):
+    r = _check(store, {"speaker_2": {"name": "박대리"}})
+    assert r.results == () and len(r.rejected) == 1 and "본인" in r.rejected[0]["reason"]

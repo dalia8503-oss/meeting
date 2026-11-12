@@ -88,12 +88,17 @@ def build_prompt(action: Mapping, transcript: Sequence[Mapping], retry: Optional
         "- 같은 단어가 있어도 다른 업무(예: 다른 도면)일 수 있다. 같은 업무인지 불명확하면 확신도 하 + 확인 필요.\n"
         "- 언급이 없으면 확인 필요 + 근거 빈 배열.\n"
         "- evidence는 transcript의 발언을 (meeting_id, timestamp, speaker, text) 그대로 복사한다. speaker_N을 이름으로 바꾸지 않는다.\n"
+        "- 이름 비교에서 띄어쓰기 차이(김 대리 / 김대리)는 같은 이름으로 본다. 글자가 다르면 다른 사람이다.\n"
         "- 담당자 이름은 발언 텍스트에 있거나 사용자가 확인한 speaker_map에 있을 때만 근거로 쓴다. 추측하지 않는다.\n"
         "- 완료 후보는 담당자 본인의 완료 발언이어야 한다. speaker_map이 없거나 그 화자가 미확인·다른 사람이면 완료 후보를 내지 않는다.\n\n"
         f"## 출력 스키마 (followup-result.schema.json)\n{schema}\n\n"
         "## INPUT\n" + json.dumps(payload, ensure_ascii=False, indent=1)
         + "\n" + speaker_context_text(speaker_map) + retry_text + "\nFollowupResult JSON 하나만 출력하라."
     )
+
+
+def _squash(text: str) -> str:
+    return "".join(str(text).split())
 
 
 def _check_evidence(result: Mapping, action: Mapping, transcript: Sequence[Mapping],
@@ -118,8 +123,9 @@ def _check_evidence(result: Mapping, action: Mapping, transcript: Sequence[Mappi
     if not assignee or assignee == "확인 필요":
         return  # 담당자 미확정은 Safety Guard(CHK020)가 완료 후보를 막는다
     names = confirmed_names(speaker_map)
+    who = _squash(assignee)  # 띄어쓰기만 다른 표기(김 대리/김대리)는 같은 이름으로 본다. 다른 글자는 다른 사람이다.
     self_confirmed = any(
-        assignee in q["text"] or q["speaker"] == assignee or names.get(q["speaker"]) == assignee
+        who in _squash(q["text"]) or _squash(q["speaker"]) == who or _squash(names.get(q["speaker"], "")) == who
         for q in result["evidence"])
     if not self_confirmed:
         raise FollowupValidationError("담당자 본인의 완료 발언임을 확인할 수 없다 (사용자 확인 화자 없음·미확인·다른 사람)")

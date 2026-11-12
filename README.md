@@ -63,6 +63,8 @@ scripts/                    smoke / TTS fixture 스크립트
 | `MAA_MODE` | `live`(실제 Gemini) / `demo`(기본값, 외부 호출 없음). 요청으로 바꿀 수 없다. |
 | `MAA_RUNTIME_DIR` | 선택. 저장 루트 (기본 `runtime/`, 모드별로 분리) |
 
+`live` 모드에서만 Gemini 키가 필요합니다. 지난 회의 브리핑의 음성(TTS)은 Windows 로컬 음성(SAPI, Microsoft Heami ko-KR)을 쓰며 외부 TTS는 쓰지 않습니다. 시연·테스트에는 실제 회의가 아닌 가상(synthetic) 데이터만 사용하세요.
+
 ### 백엔드
 
 ```bash
@@ -97,14 +99,17 @@ cd frontend && npm run build && npm run lint
 | PUT | `/api/meetings/{id}/speaker-map` | 사용자가 확인한 화자 이름 저장 |
 | POST | `/api/meetings/{id}/analyze` | Multi-Agent 분석 (`previous_meeting_ids`를 명시) |
 | GET | `/api/meetings/{id}/result` | 분석 결과 조회 |
+| POST | `/api/briefings` | 지난 회의 브리핑 생성 (`previous_meeting_id`, `current_date`). Reviewer 통과 시에만 텍스트+음성 제공 |
+| GET | `/api/briefings/{id}/audio` | 저장된 브리핑 WAV 재생 (LLM 호출 없음) |
 | POST | `/api/actions/{id}/review` | 사람의 완료·계속 진행·확인 필요 처리 |
 | POST | `/api/actions/{id}/withdraw-completion` | 완료 철회 |
 
 ## 검증 현황
 
-- pytest 820 PASS, `npm run build` / `npm run lint` PASS
+- pytest 915 PASS, `npm run build` / `npm run lint` PASS
 - Backend LIVE E2E 1회 검증 (실제 Gemini STT → 화자 확인 → 병렬 Multi-Agent → 완료 후보 → 사람 승인 → 완료). 가상(synthetic/TTS) 회의만 사용했다.
-- React 화면의 LIVE 브라우저 검증은 아직 하지 않았다.
+- 브리핑(생성·Reviewer·TTS·WAV 재생)과 2차 회의 Follow-up은 live API로 검증했다. React 화면의 LIVE 브라우저 수동 E2E는 `DEMO_PREP.md` 체크리스트로 진행한다.
+- LLM 출력은 실행마다 달라질 수 있다. Reviewer가 근거 불일치를 거부하면 Action이 생성되지 않을 수 있다(안전 동작).
 
 ## 한계
 
