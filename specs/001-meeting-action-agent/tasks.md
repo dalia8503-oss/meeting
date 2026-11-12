@@ -28,7 +28,7 @@
 - [ ] T-00-11 **SPEC 보완 반영 요청**: data-model.md 8장의 임시 결정 10건과 checklists/requirements.md의 "SPEC 수정 필요" 13건(CHK011~015, 019~024, 045, 047)을 정리해 사용자 승인 후 SPEC 5~6장에 반영. 특히 근거 발언 `speaker` 필드(CHK011)는 T-06-2의 선행 조건
 - [ ] T-00-12 녹취·메타데이터 로더: 스키마 검증(`contracts/`) + 한 파일의 `meeting_id` 동일·`timestamp` 시간순 검증. 가짜 JSON 단계부터 사용 ← T-00-7, T-00-8
 - [ ] T-00-13 벤치마크용 테스트 음성 준비 (R-10): 정답표 대본을 직접 녹음 또는 TTS로 제작. 실제 회사 회의는 쓰지 않는다. P7 착수 전까지 ← T-00-5, T-00-6
-- [ ] T-00-14 **LLM 어댑터(`agents/` 경계)**: Analyst·Action Manager·Reviewer 호출 인터페이스, 출력의 스키마 검증, 호출 오류·타임아웃 시 동작, 테스트용 고정 응답(fixture) 재생 모드, 실제 호출 테스트의 분리(마커). 프롬프트·역할 정본은 `.claude/agents/` ← T-00-1(R-05 결정), T-00-8
+- [x] T-00-14 **LLM 어댑터(`agents/` 경계)** (실제 호출 기준: 지원 Provider[Anthropic Claude·Google Gemini] 중 하나로 `runner(prompt)->str` end-to-end 성공이면 충족, 특정 Provider 종속 아님): Analyst·Action Manager·Reviewer 호출 인터페이스, 출력의 스키마 검증, 호출 오류·타임아웃 시 동작, 테스트용 고정 응답(fixture) 재생 모드, 실제 호출 테스트의 분리(마커). 프롬프트·역할 정본은 `.claude/agents/` ← T-00-1(R-05 결정), T-00-8
 
 ## 1. 녹음파일 입력 (A)
 
