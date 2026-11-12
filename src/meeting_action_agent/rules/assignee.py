@@ -100,7 +100,7 @@ def decide_assignee(
         return AssigneeDecision(NEEDS_CONFIRMATION, AssigneeBasis.PRONOUN_OR_OMITTED)
 
     # 4) 발언에 없는 이름은 채택하지 않는다
-    if name not in utterance_text:
+    if _squash(name) not in _squash(utterance_text):  # 공백 차이("박 대리님")만 허용, 이름 자체는 반드시 발언에 있어야 함
         return AssigneeDecision(NEEDS_CONFIRMATION, AssigneeBasis.NOT_IN_UTTERANCE)
 
     # 5) 직책만 언급 -> 개인 특정 불가

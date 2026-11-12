@@ -9,8 +9,12 @@ from dataclasses import dataclass
 from typing import Callable, Mapping, Optional, Sequence, Union
 
 from meeting_action_agent.analyst import AnalysisValidationError, analyze_transcript, relink_utterance
-from meeting_action_agent.manager import ConversionResult, convert_candidate
-from meeting_action_agent.reviewer import review_candidate
+from meeting_action_agent.contracts import SchemaValidationError
+from meeting_action_agent.manager import ConversionContextError, ConversionResult, convert_candidate
+from meeting_action_agent.manager.followup import NoPreviousActionsSpecified, check_previous_actions
+from meeting_action_agent.manager.followup_apply import apply_followups_with_retry
+from meeting_action_agent.reviewer import ReviewOutputError, review_candidate
+from meeting_action_agent.state import CompletionGuardError
 
 
 def _relink_extra(candidate: Mapping, transcript: Sequence[Mapping]) -> dict:
@@ -83,3 +87,57 @@ def extract_review_convert(
                                    reviewer_passed=True, store=store)
         outcomes.extend(result.outcomes)
     return ReviewedResult(ConversionResult(tuple(outcomes)), tuple(reviews), tuple(rejected), analysis)
+
+
+@dataclass(frozen=True)
+class MeetingPipelineResult:
+    """이행점검 + 신규 Action 결과. 두 경로는 독립적이다."""
+    followup_outcomes: tuple = ()    # ApplyOutcome 전부 (applied | reassessed | rejected | skipped)
+    followup_rejected: tuple = ()    # 그중 최종 rejected (Action 불변)
+    followup_invalid: tuple = ()     # 첫 판정 검증 실패 {action_id, reason} (Reviewer 이전, Action 불변)
+    new_actions: Optional[ReviewedResult] = None   # 신규 Action 경로 결과 (추출 실패 시 None)
+    new_actions_error: Optional[str] = None        # 신규 경로 실패 사유 (follow-up 반영은 이미 유지됨)
+    snapshot_path: Optional[object] = None
+
+
+def run_meeting_pipeline(
+    transcript: Sequence[Mapping],
+    *,
+    analyst_runner: Callable[[str], Union[str, dict]],
+    candidate_reviewer_runner: Callable[[str], Union[str, dict]],
+    followup_runner: Callable[[str], Union[str, dict]],
+    followup_reviewer_runner: Callable[[str], Union[str, dict]],
+    store,
+    metadata: Mapping,
+    previous_meeting_ids: Optional[Sequence[str]] = None,
+    meetings_dir=None,
+) -> MeetingPipelineResult:
+    """T-09-11. Orchestration만 한다 — 판정·검증·상태전이·flag는 기존 함수가 수행한다.
+
+    1) check_previous_actions: 이전 Action 조회·대상 선택·Follow-up 분석·검증(+ meetings_dir면 snapshot create-only)
+    2) apply_followups_with_retry: Reviewer → REJECT 시 1회 재분석 → 최종 PASS만 반영 (Action별 독립)
+    3) extract_review_convert: 현재 회의의 신규 지시 추출 → Reviewer → 새 Action
+    Follow-up이 먼저인 이유: 점검 대상(다른 회의 Action)은 2)에서만 바뀌고, 3)이 만드는 현재 회의 Action은
+    점검 대상이 아니라 순서 의존은 없다. 점검 실패(안전 위반·snapshot 충돌)는 어떤 write보다 먼저 발생해
+    신규 Action도 만들지 않는다(fail-closed).
+    신규 경로의 실패는 이미 반영된 Follow-up 결과를 되돌리지 않고 new_actions_error로 보고한다
+    (회의 전체 transaction은 범위 밖 — 기존 TODO).
+    """
+    try:
+        report = check_previous_actions(transcript, followup_runner, store=store,
+                                        previous_meeting_ids=previous_meeting_ids, meetings_dir=meetings_dir)
+        outcomes = apply_followups_with_retry(store, report.results, transcript, followup_runner,
+                                              followup_reviewer_runner, metadata["meeting_date"])
+        invalid, snapshot = tuple(report.rejected), report.saved_path
+    except NoPreviousActionsSpecified:  # 첫 회의: 점검할 이전 Action이 없다
+        outcomes, invalid, snapshot = [], (), None
+
+    new, error = None, None
+    try:
+        new = extract_review_convert(transcript, analyst_runner, candidate_reviewer_runner,
+                                     store=store, metadata=metadata)
+    except (AnalysisValidationError, SchemaValidationError, ConversionContextError,
+            ReviewOutputError, CompletionGuardError) as e:
+        error = f"{type(e).__name__}: {e}"
+    return MeetingPipelineResult(
+        tuple(outcomes), tuple(o for o in outcomes if o.outcome == "rejected"), invalid, new, error, snapshot)

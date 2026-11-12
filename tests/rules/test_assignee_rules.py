@@ -132,3 +132,11 @@ def test_result_is_compatible_with_action_candidate_contract(text, mention, spea
 def test_needs_confirmation_constant_matches_contract_value():
     common = json.loads((CONTRACTS / "common.schema.json").read_text(encoding="utf-8"))
     assert NEEDS_CONFIRMATION == common["$defs"]["NeedsConfirmation"]["const"]
+
+
+def test_assignee_matches_name_with_spacing_difference():
+    """T-09-11: '박 대리님' 처럼 공백만 다른 표기는 발언에 있는 이름으로 인정한다. 없는 이름은 여전히 확인 필요."""
+    ok = decide_assignee(utterance_text="이번에는 박 대리님이 검토해 주세요.", speaker="팀장", mention="박대리")
+    assert ok.assignee == "박대리"
+    bad = decide_assignee(utterance_text="이번에는 최 대리님이 검토해 주세요.", speaker="팀장", mention="박대리")
+    assert bad.assignee == "확인 필요"
