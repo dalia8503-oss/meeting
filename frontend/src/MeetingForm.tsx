@@ -1,6 +1,8 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react'
-import { analyzeMeeting, createMeeting, type AnalysisResult, type MeetingCreated } from './api'
+import { analyzeMeeting, createMeeting, type ActionView, type AnalysisResult, type MeetingCreated } from './api'
 import AnalysisView, { Progress, type Phase } from './AnalysisView'
+import PreviousMeetings from './PreviousMeetings'
+import { loadKnownMeetings, rememberMeeting, type KnownMeeting } from './knownMeetings'
 
 type State =
   | { s: 'idle' }
@@ -18,6 +20,8 @@ export default function MeetingForm() {
   const [drag, setDrag] = useState(false)
   const [state, setState] = useState<State>({ s: 'idle' })
   const input = useRef<HTMLInputElement>(null)
+  const [known, setKnown] = useState<KnownMeeting[]>(loadKnownMeetings)
+  const [previousIds, setPreviousIds] = useState<string[]>([])
   const busy = state.s === 'uploading'
 
   const onDrop = (e: DragEvent) => {
@@ -46,18 +50,29 @@ export default function MeetingForm() {
   const reset = () => {
     setTitle('')
     setFile(null)
+    setPreviousIds([])
     setState({ s: 'idle' })
   }
 
   const analyze = async (meeting: MeetingCreated) => {
     setState({ s: 'success', meeting, analyzing: true })
     try {
-      const result = await analyzeMeeting(meeting.meeting_id)
+      // 이전 회의가 없으면 [] 를 보낸다 (null이 아님).
+      const result = await analyzeMeeting(meeting.meeting_id, previousIds)
+      setKnown(rememberMeeting({ meeting_id: meeting.meeting_id, title: meeting.title, meeting_date: meeting.meeting_date }))
       setState({ s: 'success', meeting, result })
     } catch (err) {
       setState({ s: 'success', meeting, error: err instanceof Error ? err.message : '회의 분석에 실패했습니다.' })
     }
   }
+
+  /** 사람 판단 API가 돌려준 최신 Action으로 화면 state를 교체한다 (reload 없음). */
+  const replaceAction = (updated: ActionView) =>
+    setState((cur) => {
+      if (cur.s !== 'success' || !cur.result) return cur
+      const swap = (list: ActionView[]) => list.map((a) => (a.action_id === updated.action_id ? updated : a))
+      return { ...cur, result: { ...cur.result, actions: swap(cur.result.actions), new_actions: swap(cur.result.new_actions) } }
+    })
 
   const phase: Phase =
     state.s === 'success' ? (state.result ? 'done' : state.analyzing ? 'analyzing' : 'uploaded') : 'idle'
@@ -82,9 +97,17 @@ export default function MeetingForm() {
             </button>
           </div>
         </section>
+        {!state.result && (
+          <PreviousMeetings
+            meetings={known.filter((k) => k.meeting_id !== state.meeting.meeting_id)}
+            selected={previousIds}
+            onChange={setPreviousIds}
+            disabled={!!state.analyzing}
+          />
+        )}
         {state.error && <p className="error" role="alert">{state.error}</p>}
         <Progress phase={phase} />
-        {state.result && <AnalysisView result={state.result} />}
+        {state.result && <AnalysisView result={state.result} onActionUpdated={replaceAction} />}
       </>
     )
   }

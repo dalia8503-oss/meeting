@@ -66,8 +66,26 @@ export interface SummaryItem {
   evidence_timestamps: string[]
 }
 
+export interface Evidence {
+  timestamp: string
+  speaker: string | null
+  text: string
+}
+
+/** 사람 승인 기록. 값은 서버가 준 그대로 표시한다. */
+export interface ApprovedByHuman {
+  approver?: string
+  approved_at?: string
+  evidence?: { meeting_id?: string; timestamp?: string }
+}
+
+export interface HistoryEntry {
+  [key: string]: unknown
+}
+
 export interface ActionView {
   action_id: string
+  meeting_id: string | null
   status: string
   assignee: string
   assigner: string
@@ -75,7 +93,44 @@ export interface ActionView {
   due_date: string | null
   due_date_normalized: string | null
   flags: string[]
-  evidence: { timestamp: string; speaker: string | null; text: string }
+  evidence: Evidence
+  approved_by_human: ApprovedByHuman | null
+  history: HistoryEntry[]
+}
+
+export type FollowupOutcome = 'applied' | 'reassessed' | 'rejected' | 'skipped'
+
+export interface FollowupResult {
+  action_id: string
+  outcome: FollowupOutcome | string
+  from_status: string | null
+  to_status: string | null
+  detail: string
+  reviewer_verdict: string | null
+  evidence: Evidence[]
+}
+
+export interface AgentRun {
+  agent: string
+  status: 'ok' | 'error' | string
+  started_at: number
+  finished_at: number
+  reviewer: Record<string, number>
+  error: string | null
+}
+
+export interface Execution {
+  mode: 'sequential' | 'parallel'
+  overlapped: boolean
+  agents: AgentRun[]
+  reviewer: Record<string, number>
+}
+
+export interface RejectedItem {
+  task: string
+  assignee: string
+  timestamp: string
+  evidence: string
 }
 
 export interface AnalysisResult {
@@ -88,11 +143,32 @@ export interface AnalysisResult {
   open_issues: SummaryItem[]
   needs_confirmation: SummaryItem[]
   actions: ActionView[]
-  rejected: { task: string; assignee: string; timestamp: string; evidence: string }[]
+  rejected: RejectedItem[]
+  meeting_analysis: {
+    summary: SummaryItem[]
+    decisions: SummaryItem[]
+    open_issues: SummaryItem[]
+    needs_confirmation: SummaryItem[]
+  } | null
+  new_actions: ActionView[]
+  followup_results: FollowupResult[]
+  followup_invalid: Record<string, unknown>[]
+  previous_meeting_ids: string[]
+  execution: Execution | null
+  new_actions_error: string | null
+  followup_error: string | null
 }
 
-const ANALYZE_ERRORS: Record<string, string> = {
+export type ReviewChoice = '완료' | '계속 진행' | '확인 필요'
+
+const NETWORK_ERROR = 'Backend에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.'
+
+/** code → 사용자 문구. raw JSON은 보여주지 않는다. */
+const API_ERRORS: Record<string, string> = {
   meeting_not_found: '회의를 찾을 수 없습니다.',
+  previous_meeting_not_found: '선택한 이전 회의를 찾을 수 없습니다. 목록을 확인해 주세요.',
+  invalid_previous_meeting: '현재 회의를 이전 회의로 지정할 수 없습니다.',
+  not_analyzed: '아직 분석되지 않은 회의입니다.',
   already_analyzed: '이미 분석된 회의입니다.',
   analysis_in_progress: '이 회의는 분석이 진행 중입니다.',
   gemini_not_configured: 'LIVE 모드에 필요한 Gemini API 키가 서버에 설정되어 있지 않습니다.',
@@ -100,24 +176,69 @@ const ANALYZE_ERRORS: Record<string, string> = {
   analysis_invalid: '회의 분석 결과가 검증을 통과하지 못했습니다. 다시 시도해 주세요.',
   review_failed: 'Reviewer 검증에 실패했습니다. 다시 시도해 주세요.',
   audio_integrity_error: '원본 녹음이 변경된 것으로 보여 분석을 중단했습니다.',
+  followup_snapshot_conflict: '이미 이 회의의 이행점검 결과가 저장되어 있습니다. 기존 결과를 덮어쓰지 않습니다.',
+  completion_guard_violation: '완료 승인 조건을 만족하지 않아 처리하지 못했습니다. 완료는 사람이 새 근거로 승인해야 합니다.',
+  invalid_transition: '현재 상태에서는 허용되지 않는 처리입니다. 화면의 상태가 오래되었을 수 있습니다.',
+  action_not_found: 'Action을 찾을 수 없습니다.',
 }
 
-/** 동기 요청이다. 서버가 진행률을 주지 않으므로 호출 측은 "분석 중"만 표시한다. */
-export async function analyzeMeeting(meetingId: string): Promise<AnalysisResult> {
+class ApiFailure extends Error {}
+
+async function call<T>(path: string, init: RequestInit, fallback: string): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/meetings/${encodeURIComponent(meetingId)}/analyze`, { method: 'POST' })
+    res = await fetch(`${API_BASE}${path}`, init)
   } catch {
-    throw new Error('Backend에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.')
+    throw new ApiFailure(NETWORK_ERROR)
   }
-  if (!res.ok) {
-    let code = ''
-    try {
-      code = (await res.json())?.detail?.code ?? ''
-    } catch {
-      /* ignore */
-    }
-    throw new Error(ANALYZE_ERRORS[code] ?? '회의 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+  if (res.ok) return (await res.json()) as T
+  let code = ''
+  let message = ''
+  try {
+    const d = (await res.json())?.detail
+    // FastAPI 본문 검증 오류(422)는 detail이 배열이다 → 코드/메시지 없음으로 처리한다.
+    code = typeof d?.code === 'string' ? d.code : ''
+    message = typeof d?.message === 'string' ? d.message : ''
+  } catch {
+    /* ignore */
   }
-  return (await res.json()) as AnalysisResult
+  if (API_ERRORS[code]) throw new ApiFailure(API_ERRORS[code])
+  // 검증 안내문(invalid_review_request)은 서버가 사용자용 한국어 문구를 준다. 실제 원인을 숨기지 않는다.
+  if (code === 'invalid_review_request' && message) throw new ApiFailure(message)
+  throw new ApiFailure(fallback)
+}
+
+/**
+ * 동기 요청이다. 서버가 진행률을 주지 않으므로 호출 측은 "분석 중"만 표시한다.
+ * previousMeetingIds는 항상 배열로 보낸다. 이전 회의가 없으면 [] (null은 서버에서 다른 의미가 될 수 있어 쓰지 않는다).
+ */
+export function analyzeMeeting(meetingId: string, previousMeetingIds: string[]): Promise<AnalysisResult> {
+  return call<AnalysisResult>(
+    `/api/meetings/${encodeURIComponent(meetingId)}/analyze`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ previous_meeting_ids: previousMeetingIds }),
+    },
+    '회의 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  )
+}
+
+export function reviewAction(
+  actionId: string,
+  body: { choice: ReviewChoice; actor_name: string; meeting_id?: string; timestamp?: string },
+): Promise<ActionView> {
+  return call<ActionView>(
+    `/api/actions/${encodeURIComponent(actionId)}/review`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    '처리에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  )
+}
+
+export function withdrawCompletion(actionId: string, actorName: string): Promise<ActionView> {
+  return call<ActionView>(
+    `/api/actions/${encodeURIComponent(actionId)}/withdraw-completion`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actor_name: actorName }) },
+    '완료 철회에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  )
 }

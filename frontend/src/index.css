@@ -119,3 +119,63 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .ai-info { padding: 8px 14px; background: transparent; font-size: 13px; }
 .ai-info summary { cursor: pointer; color: var(--muted); }
 .ai-info[open] summary { margin-bottom: 6px; }
+
+/* 이전 회의 선택 */
+.prev-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.prev-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.prev-item:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
+
+/* AI 협업 분석 */
+.agents { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.agent { padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); min-width: 0; }
+.agent-name { font-weight: 700; }
+.agent-state { margin-top: 4px; font-weight: 600; color: #166534; }
+.agent-err { color: var(--danger); }
+.bar-track { position: relative; height: 6px; margin-top: 8px; background: #e3e6ea; border-radius: 3px; }
+.bar { position: absolute; top: 0; height: 100%; background: var(--primary); border-radius: 3px; }
+
+/* 이전 지시 이행점검 */
+.followup-panel { border-left: 4px solid var(--st-cand-fg); }
+.actor { display: flex; flex-direction: column; gap: 4px; max-width: 260px; margin: 6px 0 10px; font-size: 13px; }
+.actor input { padding: 8px; font: inherit; border: 1px solid var(--border); border-radius: 6px; }
+.fu-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.fu-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fu-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.fu-id { font-size: 1rem; }
+.fu-task { font-weight: 600; overflow-wrap: anywhere; }
+.fu-flow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.fu-step { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.fu-arrow { color: var(--muted); padding-bottom: 4px; }
+.fu-note { margin: 0; }
+.fu-evidence .evidence { margin-top: 4px; }
+.evidence blockquote { overflow-wrap: anywhere; }
+.verdict { padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.verdict-pass { background: var(--st-cand); color: var(--st-cand-fg); }
+.verdict-reject { background: var(--st-fail); color: var(--st-fail-fg); }
+.review-box { padding: 10px 12px; background: #f4faf6; border: 1px solid #b7e0c4; border-radius: 6px; }
+.review-title { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.review-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn-done { padding: 8px 22px; background: #15803d; color: #fff; border: 0; border-radius: 6px; font-weight: 700; }
+.btn-sub { padding: 8px 14px; background: #fff; color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.btn-withdraw { align-self: flex-start; font-size: 12px; color: var(--muted); }
+.approval { margin-top: 4px; }
+.origin { margin-top: 4px; font-size: 11px; font-weight: 600; }
+.origin-new { color: var(--st-new-fg); }
+.origin-prev { color: var(--st-cand-fg); }
+.c-task { overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  main { padding: 14px 12px 40px; }
+  .form-row { grid-template-columns: 1fr; }
+  .review-btns button { flex: 1 1 30%; }
+  .agents { grid-template-columns: 1fr; }
+}
+.review-btns button { white-space: nowrap; }
+@media (max-width: 800px) {
+  .review-btns button { flex: 1 1 auto; }
+  /* Action List: 좁은 화면에서는 표 대신 행 단위 세로 카드로 바꾼다 */
+  .action-table, .action-table tbody, .action-table tr, .action-table td { display: block; min-width: 0; width: auto; }
+  .action-table thead { display: none; }
+  .action-table tr:not(.ev-row) { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .action-table td, .action-table td:nth-child(n) { width: auto; border: 0; padding: 3px 4px; white-space: normal; }
+  .action-table tr.ev-row { padding: 0; }
+}

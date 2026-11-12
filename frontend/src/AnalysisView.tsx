@@ -1,5 +1,7 @@
 import { Fragment, useState } from 'react'
 import type { ActionView, AnalysisResult, SummaryItem } from './api'
+import { CollabPanel, FollowupPanel, ApprovalInfo } from './FollowupView'
+import { StatusBadge } from './StatusBadge'
 
 const STEPS = ['음성 업로드', 'STT', '회의 분석', 'Reviewer', 'Action 생성']
 
@@ -26,26 +28,8 @@ export function Progress({ phase }: { phase: Phase }) {
           )
         })}
       </ol>
-      {phase === 'analyzing' && <p className="muted small">회의를 분석하고 있습니다. 잠시만 기다려 주세요...</p>}
+      {phase === 'analyzing' && <p className="muted small">AI Agent들이 회의를 분석하고 있습니다. 잠시만 기다려 주세요...</p>}
     </section>
-  )
-}
-
-const STATUS: Record<string, { icon: string; cls: string }> = {
-  '신규': { icon: '🔵', cls: 'new' },
-  '진행중': { icon: '🟠', cls: 'doing' },
-  '완료 후보': { icon: '🟢', cls: 'cand' },
-  '완료': { icon: '✅', cls: 'done' },
-  '미완료': { icon: '🔴', cls: 'fail' },
-  '확인 필요': { icon: '🟡', cls: 'confirm' },
-}
-
-export function StatusBadge({ status }: { status: string }) {
-  const s = STATUS[status] ?? { icon: '⚪', cls: 'other' }
-  return (
-    <span className={`status status-${s.cls}`}>
-      <span aria-hidden="true">{s.icon}</span> {status}
-    </span>
   )
 }
 
@@ -71,16 +55,22 @@ function Due({ a }: { a: ActionView }) {
   )
 }
 
-function ActionRow({ a }: { a: ActionView }) {
+function ActionRow({ a, meetingId }: { a: ActionView; meetingId: string }) {
   const [open, setOpen] = useState(false)
   const panelId = `ev-${a.action_id}`
   return (
     <Fragment>
       <tr>
-        <td><StatusBadge status={a.status} /></td>
+        <td>
+          <StatusBadge status={a.status} />
+          <ApprovalInfo a={a} />
+        </td>
         <td className="c-assignee">{a.assignee || <span className="muted">미지정</span>}</td>
         <td className="c-task">
           {a.task}
+          <div className={`origin ${a.meeting_id === meetingId ? 'origin-new' : 'origin-prev'}`}>
+            {a.action_id} · {a.meeting_id === meetingId ? '이번 회의 신규' : '이전 회의 이행점검'}
+          </div>
           {a.flags.map((f) => (
             <span key={f} className="flag">{f}</span>
           ))}
@@ -109,7 +99,7 @@ function ActionRow({ a }: { a: ActionView }) {
   )
 }
 
-function ActionList({ actions }: { actions: ActionView[] }) {
+function ActionList({ actions, meetingId }: { actions: ActionView[]; meetingId: string }) {
   return (
     <section className="panel action-panel" aria-label="Action List">
       <div className="panel-head">
@@ -132,7 +122,7 @@ function ActionList({ actions }: { actions: ActionView[] }) {
             </thead>
             <tbody>
               {actions.map((a) => (
-                <ActionRow key={a.action_id} a={a} />
+                <ActionRow key={a.action_id} a={a} meetingId={meetingId} />
               ))}
             </tbody>
           </table>
@@ -242,11 +232,16 @@ function AiVerification({ rejected }: { rejected: AnalysisResult['rejected'] }) 
   )
 }
 
-export default function AnalysisView({ result }: { result: AnalysisResult }) {
+export default function AnalysisView({ result, onActionUpdated }: { result: AnalysisResult; onActionUpdated: (a: ActionView) => void }) {
   return (
     <>
       <ResultHeader result={result} />
-      <ActionList actions={result.actions} />
+      <CollabPanel result={result} />
+      <FollowupPanel result={result} onUpdated={onActionUpdated} />
+      {result.new_actions_error && (
+        <p className="error" role="alert">신규 Action 추출 중 문제가 발생했습니다. 이전 지시 이행점검 결과는 유지되었습니다.</p>
+      )}
+      <ActionList actions={result.actions} meetingId={result.meeting_id} />
       <NeedsConfirmation items={result.needs_confirmation} />
       <div className="two-col">
         <Box cls="decision" title="✓ 결정사항" sub="회의에서 확정된 내용" items={result.decisions} mark="✓" empty="확정된 결정사항이 없습니다." />
