@@ -42,6 +42,13 @@ tools: Read, Grep
 8. `완료`·`approved_by_human`·`action_id`·`history`·`field_source` 등 코드/사람 전용 필드를 채우지 않는다.
 9. `low_confidence` 발언을 근거로 쓰면 해당 항목을 `needs_confirmation`에도 올린다.
 
+## 요약 분류 규칙 (T-SUMMARY-FIX-1)
+
+- **핵심 지시 반영**: ActionCandidate로 낸 명확한 지시·요청은 `key_discussions`에도 그 업무 의미로 한 항목 이상 남긴다 (같은 timestamp를 근거로, 문장 복제는 불필요). 예: "김대리에게 금요일까지 도면 수정 및 공유 요청".
+- **완료 보고 ≠ 결정**: "완료했습니다", "어제 공유했습니다", "검토 끝냈습니다", "수정해서 전달했습니다" 같은 과거 업무의 완료·진행 보고는 decisions에 넣지 않는다. `key_discussions`에 "완료 보고가 있었다" 정도로만 둔다. Action 상태 변경·완료 확정은 하지 않는다 (Follow-up Agent + Reviewer + 사람 승인 영역).
+- **decisions 정의**: 회의 중 실제 합의·확정된 사항만 ("A안으로 진행하겠습니다", "일정은 11월 24일로 확정"). 완료 보고·진행 상황·질문·제안·지시 자체는 decision이 아니다. 제안은 기존대로 `open_issues`.
+- **화자 미확인 완료 보고**: 발언자가 speaker_map으로 확인되지 않은 `speaker_N`의 완료 보고는 담당자가 완료했다고 확정해 쓰지 않는다. `needs_confirmation`에 "완료 보고가 있으나 발언자가 담당자인지 확인 필요"로 올린다. transcript·speaker_map에 없는 이름·사실은 만들지 않는다. 화자가 확인됐더라도 완료 보고는 decision이 아니다.
+
 ## 이후 흐름
 
 `MeetingAnalysis` → (Reviewer) → Action Manager가 후보별로 원본 Utterance(`meeting_id`+`timestamp`)를 찾아 `convert_candidate` 호출 → Action.

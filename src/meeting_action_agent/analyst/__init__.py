@@ -9,12 +9,13 @@
 """
 import json
 import os
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence, Union
 
 from meeting_action_agent.contracts import CONTRACTS_DIR, receive_agent_output, validate
-from meeting_action_agent.speakers import speaker_context_text
+from meeting_action_agent.speakers import confirmed_names, speaker_context_text
 
 AGENT_DEFINITION = Path(__file__).resolve().parents[3] / ".claude" / "agents" / "meeting-analyst.md"
 
@@ -73,6 +74,59 @@ def validate_analysis(analysis, transcript: Sequence[Mapping]) -> None:
         check(cand["timestamp"], where, allow_duplicate=safe_ambiguous)
 
 
+# --- T-SUMMARY-FIX-1: 요약 분류 품질 (key_discussions / decisions / needs_confirmation) ---
+_DONE_REPORT = re.compile(r"(완료(했|됐|되었|됨|입니다|해서|하였)|끝냈|끝났|마쳤|(공유|전달|제출|수정|검토|처리|송부)했|보냈|드렸)")
+_PROPOSAL = re.compile(r"(좋겠|어떨까|어떻겠|보면 어때|해보죠|해 보면)")
+_DECISION_CUE = re.compile(r"(하겠습니다|하죠|로 진행|으로 진행|확정|결정|합의|하기로)")
+_QUESTION = re.compile(r"(\?|나요|까요|ㄹ까)\s*$")
+_SPEAKER_LABEL = re.compile(r"^speaker_\d+$")
+
+
+def _is_done_report(text: str) -> bool:
+    return bool(_DONE_REPORT.search(text)) and not _QUESTION.search(text.strip()) and not _DECISION_CUE.search(text)
+
+
+def _is_proposal(text: str) -> bool:
+    return bool(_PROPOSAL.search(text)) and not _DECISION_CUE.search(text)
+
+
+def ensure_key_discussions(analysis: dict) -> dict:
+    """A) 명확한 지시(신규 지시·요청)가 key_discussions 근거에 없으면 ActionCandidate 값(담당자·기한·업무)만으로
+    한 항목을 덧붙인다. 새 사실을 만들지 않고, 후보·다른 섹션은 건드리지 않는다. 같은 timestamp 근거는 재사용."""
+    covered = {ts for it in analysis["key_discussions"] for ts in it["evidence_timestamps"]}
+    for item in analysis["action_candidates"]:
+        c = item["candidate"]
+        if item["instruction_type"] != "지시·요청" or c["status"] != "신규" or c["timestamp"] in covered:
+            continue
+        who = c["assignee"] if c["assignee"] not in ("", "확인 필요") else None
+        due = c["due_date"] if c["due_date"] not in ("", "미정", "확인 필요") else None
+        text = " ".join(x for x in (f"{who}에게" if who else None, due, f"{c['task']} 요청") if x)
+        analysis["key_discussions"].append({"text": text, "evidence_timestamps": [c["timestamp"]]})
+        covered.add(c["timestamp"])
+    return analysis
+
+
+def check_summary_quality(analysis, transcript: Sequence[Mapping], speaker_map: Optional[Mapping] = None) -> None:
+    """요약 분류 품질 검사. 새 필드·상태 변경 없음 — 위반 시 예외 (보완·추측 없음).
+    B) 완료 보고·제안은 decisions 불가  C) 화자 미확인 speaker_N의 완료 보고는 needs_confirmation에 포함.
+    (A 핵심 지시 반영은 거부하지 않고 ensure_key_discussions가 후보 값으로만 보강한다.)"""
+    text_by_ts = {u["timestamp"]: u["text"] for u in transcript}
+    speaker_by_ts = {u["timestamp"]: u["speaker"] for u in transcript}
+    for i, item in enumerate(analysis["decisions"]):
+        texts = [text_by_ts.get(ts, "") for ts in item["evidence_timestamps"]]
+        if texts and all(_is_done_report(t) for t in texts):
+            raise AnalysisValidationError(f"decisions[{i}]: 완료 보고는 decision이 아님")
+        if texts and all(_is_proposal(t) for t in texts):
+            raise AnalysisValidationError(f"decisions[{i}]: 제안은 decision이 아님 (open_issues 대상)")
+    known = set(confirmed_names(speaker_map))
+    flagged = {ts for it in analysis["needs_confirmation"] for ts in it["evidence_timestamps"]}
+    for ts, text in text_by_ts.items():
+        sp = speaker_by_ts[ts]
+        if _SPEAKER_LABEL.match(sp) and sp not in known and _is_done_report(text) and ts not in flagged:
+            raise AnalysisValidationError(
+                f"needs_confirmation: 화자 미확인({sp}) 완료 보고({ts})는 발언자 확인 필요 항목으로 올려야 함")
+
+
 def relink_utterance(candidate: Mapping, transcript: Sequence[Mapping]) -> Mapping:
     """(meeting_id, timestamp)로 원본 Utterance를 찾는다. 정확히 1건만 허용 (0건·2건 이상은 오류)."""
     found = [
@@ -96,7 +150,8 @@ def analyze_transcript(transcript: Sequence[Mapping], runner: Callable[[str], Un
     except json.JSONDecodeError as e:
         raise AnalysisValidationError(f"runner 출력이 JSON이 아님: {e}") from e
     validate_analysis(analysis, transcript)
-    return analysis
+    check_summary_quality(analysis, transcript, speaker_map)
+    return ensure_key_discussions(analysis)
 
 
 def save_analysis(analysis, transcript: Sequence[Mapping], meetings_dir) -> Path:
