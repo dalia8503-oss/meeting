@@ -142,62 +142,118 @@ function ActionList({ actions }: { actions: ActionView[] }) {
   )
 }
 
-function Items({ items }: { items: SummaryItem[] }) {
+function Timestamps({ ts }: { ts: string[] }) {
+  if (ts.length === 0) return null
+  return <span className="ts">🎙 {ts.join(' · ')}</span>
+}
+
+function ItemList({ items, mark }: { items: SummaryItem[]; mark: string }) {
   return (
-    <ul className="items">
+    <ul className="item-list">
       {items.map((it, i) => (
-        <li key={i}>
-          {it.text} <span className="muted tiny">[{it.evidence_timestamps.join(', ')}]</span>
+        <li key={i} className="item">
+          <span className="item-mark" aria-hidden="true">{mark}</span>
+          <div>
+            <div className="item-text">{it.text}</div>
+            <Timestamps ts={it.evidence_timestamps} />
+          </div>
         </li>
       ))}
     </ul>
   )
 }
 
-function Section({ title, items }: { title: string; items: SummaryItem[] }) {
-  if (items.length === 0) return null
+function ResultHeader({ result }: { result: AnalysisResult }) {
   return (
-    <section className="panel">
-      <h3 className="panel-title">{title}</h3>
-      <Items items={items} />
+    <div className="result-head">
+      <strong>✅ 분석 완료</strong>
+      <span className="muted">
+        Action {result.actions.length}건 · 확인 필요 {result.needs_confirmation.length}건
+      </span>
+    </div>
+  )
+}
+
+function NeedsConfirmation({ items }: { items: SummaryItem[] }) {
+  if (items.length === 0) return <p className="muted small none-note">확인 필요 없음</p>
+  return (
+    <section className="panel confirm-panel" aria-label="확인 필요">
+      <h3 className="panel-title">
+        🟡 확인 필요 <span className="count-sm">{items.length}건</span>
+      </h3>
+      <ul className="confirm-list">
+        {items.map((it, i) => (
+          <li key={i} className="confirm-item">
+            <div className="item-text">{it.text}</div>
+            <Timestamps ts={it.evidence_timestamps} />
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
 
-function Rejected({ rejected }: { rejected: AnalysisResult['rejected'] }) {
-  if (rejected.length === 0) return null
+function Box({ cls, title, sub, items, mark, empty }: {
+  cls: string; title: string; sub: string; items: SummaryItem[]; mark: string; empty: string
+}) {
   return (
-    <details className="panel rejected">
-      <summary>Reviewer 검증에서 제외된 항목 {rejected.length}건</summary>
-      <p className="muted small">근거가 확인되지 않아 Action으로 등록하지 않은 후보입니다.</p>
-      <ul className="items">
-        {rejected.map((r, i) => (
-          <li key={i}>
-            {r.task} <span className="muted tiny">[{r.timestamp}] {r.assignee}</span>
-          </li>
-        ))}
-      </ul>
+    <section className={`panel box box-${cls}`} aria-label={title}>
+      <h3 className="panel-title">{title} <span className="count-sm">{items.length}건</span></h3>
+      <p className="muted small box-sub">{sub}</p>
+      {items.length === 0 ? <p className="muted small">{empty}</p> : <ItemList items={items} mark={mark} />}
+    </section>
+  )
+}
+
+function Summary({ items }: { items: SummaryItem[] }) {
+  return (
+    <section className="panel" aria-label="회의 요약">
+      <h3 className="panel-title">📝 회의 요약</h3>
+      {items.length === 0 ? (
+        <p className="muted small">생성된 회의 요약이 없습니다.</p>
+      ) : (
+        <ItemList items={items} mark="•" />
+      )}
+    </section>
+  )
+}
+
+function AiVerification({ rejected }: { rejected: AnalysisResult['rejected'] }) {
+  return (
+    <details className="panel ai-info">
+      <summary>
+        AI 검증 정보 <span className="muted small">· Reviewer에서 제외된 항목 {rejected.length}건</span>
+      </summary>
+      {rejected.length === 0 ? (
+        <p className="muted small">제외된 항목이 없습니다.</p>
+      ) : (
+        <>
+          <p className="muted small">근거가 확인되지 않아 Action으로 등록하지 않은 후보입니다.</p>
+          <ul className="items">
+            {rejected.map((r, i) => (
+              <li key={i}>
+                {r.task} <span className="muted tiny">[{r.timestamp}] {r.assignee}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </details>
   )
 }
 
 export default function AnalysisView({ result }: { result: AnalysisResult }) {
-  const confirm = result.needs_confirmation
   return (
     <>
+      <ResultHeader result={result} />
       <ActionList actions={result.actions} />
-      {confirm.length > 0 && (
-        <section className="panel confirm-panel">
-          <h3 className="panel-title">🟡 확인 필요 <span className="count-sm">{confirm.length}건</span></h3>
-          <Items items={confirm} />
-        </section>
-      )}
-      <Rejected rejected={result.rejected} />
-      <div className="secondary">
-        <Section title="결정사항" items={result.decisions} />
-        <Section title="미결사항" items={result.open_issues} />
-        <Section title="회의 요약" items={result.summary} />
+      <NeedsConfirmation items={result.needs_confirmation} />
+      <div className="two-col">
+        <Box cls="decision" title="✓ 결정사항" sub="회의에서 확정된 내용" items={result.decisions} mark="✓" empty="확정된 결정사항이 없습니다." />
+        <Box cls="open" title="◌ 미결사항" sub="추가 논의 또는 확인이 필요한 내용" items={result.open_issues} mark="◌" empty="남은 미결사항이 없습니다." />
       </div>
+      <Summary items={result.summary} />
+      <AiVerification rejected={result.rejected} />
     </>
   )
 }

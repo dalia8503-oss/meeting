@@ -98,11 +98,24 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .ev-speaker { margin-left: 10px; font-weight: 600; color: var(--text); }
 .evidence blockquote { margin: 6px 0 0; padding: 4px 0 4px 12px; border-left: 3px solid var(--primary); }
 
-/* 보조 영역 */
-.confirm-panel { background: #fffbea; border-color: #ecd77a; }
+/* 결과 영역 */
+.result-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.confirm-panel { background: #fffbea; border-color: #ecd77a; border-left: 4px solid #d9b100; }
 .count-sm { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px; }
+.none-note { margin: 0; padding-left: 4px; }
+.confirm-list, .item-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.confirm-item { padding: 8px 12px; background: #fff; border: 1px solid #ecd77a; border-radius: 6px; }
+.item { display: flex; gap: 8px; align-items: flex-start; }
+.item-mark { width: 1.2em; flex: none; color: var(--muted); }
+.item-text { overflow-wrap: anywhere; }
+.ts { display: inline-block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+.box-sub { margin: -4px 0 10px; }
+.box-decision { border-left: 4px solid #2e7d4f; }
+.box-decision .item-mark { color: #2e7d4f; font-weight: 700; }
+.box-open { border-left: 4px dashed #8a94a3; }
 .items { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
-.rejected summary { cursor: pointer; color: var(--muted); }
-.rejected[open] summary { margin-bottom: 6px; }
-.secondary { display: flex; flex-direction: column; gap: 14px; }
-.secondary .panel-title { font-size: 0.9rem; }
+.ai-info { padding: 8px 14px; background: transparent; font-size: 13px; }
+.ai-info summary { cursor: pointer; color: var(--muted); }
+.ai-info[open] summary { margin-bottom: 6px; }
