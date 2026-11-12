@@ -155,3 +155,30 @@ class ReviewRequest(BaseModel):
 
 class WithdrawRequest(BaseModel):
     actor_name: str
+
+
+# ---- 지난 회의 브리핑 (T-BRIEF-API+TTS)
+class BriefingRequest(BaseModel):
+    previous_meeting_id: str            # 서버가 직전 회의를 추측하지 않는다. 호출자가 명시한다.
+    current_date: str                   # YYYY-MM-DD. 시스템 날짜를 암묵적으로 쓰지 않는다.
+    regenerate: bool = False            # true일 때만 저장된 브리핑을 버리고 새로 생성한다.
+
+
+class BriefingAudio(BaseModel):
+    format: Literal["wav"]
+    media_type: str
+    duration_sec: float
+    size_bytes: int
+    url: str                            # GET으로 재생 가능한 audio endpoint
+
+
+class BriefingResponse(BaseModel):
+    status: Literal["approved"]
+    briefing_id: str
+    previous_meeting_id: str
+    current_date: str
+    briefing_text: str
+    referenced_action_ids: List[str]
+    reviewer_verdict: Literal["PASS"]
+    audio: BriefingAudio
+    reused: bool                        # true면 저장된 승인 브리핑을 재사용(LLM 호출 없음)

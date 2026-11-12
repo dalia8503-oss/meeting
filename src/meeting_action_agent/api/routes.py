@@ -2,11 +2,11 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Body, File, Form, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
-from . import service
+from . import briefing_service, service
 from .schemas import (
-    ActionView, AnalysisResult, AnalyzeRequest, HealthResponse, MeetingCreated, MeetingList, ReviewRequest,
+    ActionView, AnalysisResult, AnalyzeRequest, BriefingRequest, BriefingResponse, HealthResponse, MeetingCreated, MeetingList, ReviewRequest,
     SpeakerList, SpeakerMapRequest, WithdrawRequest)
 
 router = APIRouter(prefix="/api")
@@ -128,3 +128,24 @@ def withdraw_completion(action_id: str, body: WithdrawRequest):
     except Exception:
         log.exception("completion withdraw failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+# ---- 지난 회의 브리핑: 생성(POST)과 재생(GET audio)을 분리한다. 재생은 LLM을 호출하지 않는다.
+@router.post("/briefings", response_model=BriefingResponse)
+def create_briefing(body: BriefingRequest):
+    try:
+        return briefing_service.create_briefing(body.previous_meeting_id, body.current_date, body.regenerate)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("briefing failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+@router.get("/briefings/{briefing_id}/audio")
+def get_briefing_audio(briefing_id: str):
+    try:
+        path = briefing_service.get_audio_path(briefing_id)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    return FileResponse(path, media_type="audio/wav")
