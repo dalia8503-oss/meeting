@@ -90,6 +90,31 @@ def _validate_stored_action(action: dict) -> None:
     validate("action", action)  # 도메인/안전 가드를 모두 통과한 뒤 계약(JSON Schema) 검증
 
 
+def _merge_flags(action: dict, flags, flag_notes) -> None:
+    """플래그·부가 정보를 병합한다 (중복 방지). 호출자가 이후 검증·1회 저장을 한다.
+
+    - flags: 이미 있는 값은 다시 추가하지 않는다(순서 유지).
+    - flag_notes: 같은 플래그의 note가 같으면 유지, 다르면 ' / '로 이어 붙인다. evidence는 같은 인용을
+      중복 없이 합친다(다른 회의 근거는 보존).
+    """
+    for flag in flags or ():
+        if flag not in action["flags"]:
+            action["flags"].append(flag)
+    for flag, info in (flag_notes or {}).items():
+        notes = action.setdefault("flag_notes", {})
+        cur = notes.get(flag)
+        if cur is None:
+            notes[flag] = copy.deepcopy(info)
+            continue
+        if info["note"] not in cur["note"].split(" / "):
+            cur["note"] = f"{cur['note']} / {info['note']}"
+        for quote in info.get("evidence") or []:
+            if quote not in cur.setdefault("evidence", []):
+                cur["evidence"].append(copy.deepcopy(quote))
+        if not cur.get("evidence"):
+            cur.pop("evidence", None)
+
+
 @dataclass(frozen=True)
 class Resolution:
     """후보 판정 결과. kind: 'new' | 'duplicate'(같은 회의) | 'remention'(이전 회의 Action 재언급)."""
@@ -134,7 +159,8 @@ class ActionStore:
         self._write(actions)
 
     def change_status(self, action_id, to_status, actor, *, approved_by_human=None,
-                      evidence=None, note=None, actor_name=None) -> None:
+                      evidence=None, note=None, actor_name=None,
+                      flags=None, flag_notes=None) -> None:
         actions = self.load_all()  # 저장된 파일도 같은 가드로 재검증한 뒤 변경한다
         action = self._find(actions, action_id)
         from_status, to_status, actor = Status(action["status"]), Status(to_status), Actor(actor)
@@ -175,10 +201,11 @@ class ActionStore:
         if to_status is Status.DONE:
             action["approved_by_human"] = copy.deepcopy(approved_by_human)
         action["history"].append(entry)
+        _merge_flags(action, flags, flag_notes)  # 상태·flags·history를 한 번에 저장
         validate("action", action)  # 변경 결과(evidence 등)가 계약을 만족해야 저장한다
         self._write(actions)  # 철회 시 approved_by_human은 지우지 않는다
 
-    def record_reassessment(self, action_id, *, evidence, note) -> None:
+    def record_reassessment(self, action_id, *, evidence, note, flags=None, flag_notes=None) -> None:
         """상태를 바꾸지 않는 재판정 기록 (SPEC 5.6, T-03-13). 주체는 Agent.
 
         완료 Action은 이행점검·재판정 대상이 아니므로 거부한다 (TransitionError).
@@ -202,6 +229,7 @@ class ActionStore:
             "evidence": copy.deepcopy(evidence),
             "note": note,
         })
+        _merge_flags(action, flags, flag_notes)  # 재판정 기록과 flags를 한 번에 저장
         validate("action", action)
         self._write(actions)  # 상태·승인값은 바꾸지 않는다
 

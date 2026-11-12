@@ -332,3 +332,159 @@ def test_apply_followups_isolates_failures(make, new_action):
     outs = apply_followups(store, [bad, good], _tr(DONE_TEXT), pass_runner(), CUR_DATE)
     assert [o.outcome for o in outs] == ["rejected", "applied"]
     assert store.get("A-001")["status"] == "신규" and store.get("A-002")["status"] == "완료 후보"
+
+
+# ===== T-09-5 / T-09-10: flags / flag_notes 부착 =====
+PROPOSAL = "금요일까지는 어렵고 다음주 월요일까지 하겠습니다."
+
+
+def _flags(store, aid="A-001"):
+    a = store.get(aid)
+    return a["flags"], a.get("flag_notes", {})
+
+
+def test_not_overdue_has_no_overdue_flag(make):
+    store = make(due_norm="2026-11-20")
+    _apply(store, WORKING, "진행중", conf="중")
+    assert "기한경과" not in store.get("A-001")["flags"]
+
+
+def test_overdue_attaches_flag_and_note(make):
+    store = make(due_norm="2026-11-13")
+    _apply(store, WORKING, "진행중", conf="중")
+    flags, notes = _flags(store)
+    assert "기한경과" in flags and "2026-11-13" in notes["기한경과"]["note"]
+    validate("action", store.get("A-001"))
+
+
+def test_overdue_flag_does_not_change_status_to_not_done(make):
+    store = make(due_norm="2026-11-13")
+    _apply(store, WORKING, "진행중", conf="중")
+    assert store.get("A-001")["status"] == "진행중"
+
+
+@pytest.mark.parametrize("due,norm", [("금요일", None), ("미정", None), ("확인 필요", None)])
+def test_no_overdue_flag_without_usable_due(make, due, norm):
+    store = make(due=due, due_norm=norm)
+    _apply(store, WORKING, "진행중", conf="중", flags=("기한경과",))  # 결과가 요구해도 부착 금지
+    assert "기한경과" not in store.get("A-001")["flags"]
+
+
+def test_overdue_requested_by_result_but_not_overdue_is_ignored(make):
+    store = make(due_norm="2026-11-20")
+    _apply(store, WORKING, "진행중", conf="중", flags=("기한경과",))
+    assert "기한경과" not in store.get("A-001")["flags"]
+
+
+def test_due_change_proposal_persists_flag_note_and_keeps_due(make):
+    store = make(due_norm="2026-11-13")
+    _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="다음주 월요일")
+    a = store.get("A-001")
+    assert "기한변경제안" in a["flags"]
+    assert a["flag_notes"]["기한변경제안"]["note"] == "다음주 월요일"
+    assert a["flag_notes"]["기한변경제안"]["evidence"][0]["text"] == PROPOSAL
+    assert (a["due_date"], a["due_date_normalized"]) == ("금요일", "2026-11-13")
+    assert a["status"] == "진행중"
+    validate("action", a)
+
+
+def test_same_flags_not_duplicated_on_repeat(make):
+    store = make(due_norm="2026-11-13")
+    for _ in range(3):
+        _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="다음주 월요일")
+    a = store.get("A-001")
+    assert sorted(a["flags"]) == ["기한경과", "기한변경제안"]
+    assert a["flag_notes"]["기한변경제안"]["note"] == "다음주 월요일"
+    assert a["flag_notes"]["기한경과"]["note"].count("2026-11-13") == 1
+    assert len(a["flag_notes"]["기한변경제안"]["evidence"]) == 1
+    assert [h.get("kind") for h in a["history"]].count("재판정") == 2  # history는 매번 남는다
+
+
+def test_different_meeting_evidence_and_history_preserved(make):
+    store = make(due_norm="2026-11-13")
+    _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="다음주 월요일")
+    other = "MEET2"
+    text2 = "다음주 월요일은 어렵고 수요일까지 하겠습니다."
+    r2 = _result(text2, "진행중", conf="중", flags=("기한변경제안",), proposed_due="수요일")
+    r2["meeting_id"] = other
+    r2["evidence"][0]["meeting_id"] = other
+    tr2 = [{"meeting_id": other, "speaker": "김대리", "timestamp": TS, "text": text2}]
+    apply_followup(store, r2, tr2, pass_runner(), "2026-11-24")
+    a = store.get("A-001")
+    n = a["flag_notes"]["기한변경제안"]
+    assert "다음주 월요일" in n["note"] and "수요일" in n["note"]
+    assert {e["meeting_id"] for e in n["evidence"]} == {CUR, other}
+    assert a["flags"].count("기한변경제안") == 1
+    assert [h["evidence"][0]["meeting_id"] for h in a["history"] if h.get("evidence")] == [CUR, other]
+
+
+def test_done_candidate_status_locked_but_flags_attached(make):
+    store = make(steps=("완료 후보",), due_norm="2026-11-13")
+    _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="다음주 월요일")
+    a = store.get("A-001")
+    assert a["status"] == "완료 후보"
+    assert {"기한경과", "기한변경제안"} <= set(a["flags"])
+    assert a["history"][-1]["kind"] == "재판정"  # reassessment와 flag 동시 보존
+
+
+def test_done_action_gets_no_flags(make, approval):
+    store = make(steps=("완료 후보",), due_norm="2026-11-13")
+    store.change_status("A-001", "완료", "사람", approved_by_human=approval)
+    before = _snapshot(store)
+    _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="다음주 월요일")
+    assert _snapshot(store) == before
+
+
+def test_unknown_assignee_flags_keep_chk020(make):
+    store = make(assignee="확인 필요", status="확인 필요", due_norm="2026-11-13")
+    _apply(store, DONE_TEXT, "완료 후보")
+    a = store.get("A-001")
+    assert a["status"] == "확인 필요" and "기한경과" in a["flags"]
+
+
+def test_reject_writes_no_flags(make):
+    store = make(due_norm="2026-11-13")
+    before = _snapshot(store)
+    _apply(store, PROPOSAL, "진행중", runner=reject_runner, conf="중", flags=("기한변경제안",), proposed_due="월요일")
+    assert _snapshot(store) == before
+
+
+def test_invalid_result_writes_no_flags(make):
+    store = make(due_norm="2026-11-13")
+    before = _snapshot(store)
+    r = _result("없는 발언", "진행중", conf="중", flags=("기한변경제안",), proposed_due="월요일")
+    with pytest.raises(FollowupValidationError):
+        apply_followup(store, r, _tr(PROPOSAL), pass_runner(), CUR_DATE)
+    assert _snapshot(store) == before
+
+
+def test_store_failure_with_flags_preserves_snapshot(make, monkeypatch):
+    store = make(due_norm="2026-11-13")
+    before = _snapshot(store)
+    monkeypatch.setattr(ActionStore, "_write", lambda self, actions: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError):
+        _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="월요일")
+    monkeypatch.undo()
+    assert _snapshot(store) == before
+
+
+def test_status_change_and_flags_single_write(make, monkeypatch):
+    store = make(due_norm="2026-11-13")
+    writes = []
+    orig = ActionStore._write
+    monkeypatch.setattr(ActionStore, "_write", lambda self, actions: (writes.append(1), orig(self, actions))[1])
+    _apply(store, PROPOSAL, "진행중", conf="중", flags=("기한변경제안",), proposed_due="월요일")
+    assert len(writes) == 1
+    a = store.get("A-001")
+    assert a["status"] == "진행중" and {"기한경과", "기한변경제안"} <= set(a["flags"])
+    assert a["history"][-1]["to_status"] == "진행중"
+
+
+# T-09-3: 각 판단에 신규 회의 근거 원문·화자·타임스탬프 부착
+def test_evidence_text_speaker_timestamp_attached_on_transition_and_reassessment(make):
+    store = make()
+    _apply(store, WORKING, "진행중", conf="중")
+    _apply(store, WORKING, "진행중", conf="중")
+    for h in store.get("A-001")["history"][1:]:
+        e = h["evidence"][0]
+        assert (e["meeting_id"], e["speaker"], e["timestamp"], e["text"]) == (CUR, "김대리", TS, WORKING)

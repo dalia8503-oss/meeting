@@ -119,14 +119,14 @@
 
 - [ ] T-09-1 `/check-actions` Skill 작성
 - [x] T-09-2 상태 후보 분류 (SPEC 5.6): 완료 후보 / 진행중(+`기한경과`) / 미완료 / 확인 필요. 이미 `완료 후보`인 Action은 상태를 바꾸지 않고 재판정 기록(T-03-13)만 남긴다. **담당자가 `확인 필요`인 Action은 `완료 후보` 불가 (CHK020 결정됨 2026-11-12)** — `manager/followup_apply.py apply_followup` (`기한경과` 플래그의 Action 부착은 T-09-10에서)
-- [ ] T-09-3 각 판단에 신규 회의 근거 원문·화자·타임스탬프 부착
+- [x] T-09-3 각 판단에 신규 회의 근거 원문·화자·타임스탬프 부착 — `apply_followup`이 전이·재판정 history에 evidence(meeting_id·speaker·timestamp·text)를 그대로 부착 (`test_evidence_text_speaker_timestamp_attached_on_transition_and_reassessment`)
 - [ ] T-09-4 언급 없는 Action은 `확인 필요`(근거 없음). 확신도 하·`low_confidence`만 근거·상충 발언·철회 발언도 `확인 필요`(근거 모두 첨부)
-- [ ] T-09-5 (기존 due_date 유지·history note 기록은 구현됨, `flag_notes`/`flags` 부착은 미구현) 기한 변경 발언은 `기한변경제안`으로만 표시 (새 기한 원문은 `flag_notes`, 기한 덮어쓰기 금지)
+- [x] T-09-5 (due_date 유지·history note·`flags`/`flag_notes` 부착 구현됨 — `followup_apply._flag_updates`, `store._merge_flags`, 중복 flag 없음, 다른 회의 evidence 보존) 기한 변경 발언은 `기한변경제안`으로만 표시 (새 기한 원문은 `flag_notes`, 기한 덮어쓰기 금지)
 - [x] T-09-6 Agent 출력 enum에서 `완료` 금지 (가드 자체는 T-03-3) — FollowupResult `완료` 거부 + 완료 후보 PASS여도 Agent 완료 불가 테스트 (`tests/manager/test_followup_apply.py`)
 - [ ] T-09-7 결과를 Reviewer에 전달, REJECT 시 T-06-7 루프 적용
 - [ ] T-09-8 2차 회의의 신규 지시도 `/analyze-meeting` 흐름으로 추출, 이후 `action_id` 이어서 발급
 - [ ] T-09-9 **⚠ 수정 대상**(재판정 기록·FollowupResult 보존 방식 data-model 8장 #16 결정 후 반영) 테스트: SPEC 8장 시나리오 (A-001 → 완료 후보, 00:08:31, 완료 후보 이상으로 승격되지 않음), 정답표 대비 상태 일치율 측정
-- [ ] T-09-10 `기한경과` 판정: 비교 기준(신규 회의 `meeting_date` vs `due_date_normalized`), `due_date_normalized`가 null일 때의 처리, `진행중` 외 `미완료`에도 붙는지. **CHK024 결정됨 (2026-11-12)**: 비교 기준·null 처리는 `is_overdue`로 구현·테스트. 남은 일: `기한경과` flag를 Action에 부착하는 저장 경로(현재는 history note에만 기록), 파이프라인 연결
+- [ ] T-09-10 `기한경과` 판정: 비교 기준(신규 회의 `meeting_date` vs `due_date_normalized`), `due_date_normalized`가 null일 때의 처리, `진행중` 외 `미완료`에도 붙는지. **CHK024 결정됨 (2026-11-12)**: 비교 기준·null 처리는 `is_overdue`로 구현·테스트. `기한경과` flag/flag_notes 부착 저장 경로는 구현됨(2026-11-12, 상태·flags·history 1회 저장, `is_overdue`일 때만, 완료 Action 제외). 남은 일: 파이프라인 연결(T-09-11)
 - [ ] T-09-11 **이행점검 파이프라인 연결**: 점검 대상 로드(T-08) → 근거 탐색·판정(T-09-2~5) → Reviewer(T-09-7) → 상태 변경 저장(`history` 기록). LLM 어댑터 사용, fixture 모드 지원 ← T-00-14, T-07-5, T-08-4
 
 ## 10. 사람 승인 (B) ← 3장, 9장

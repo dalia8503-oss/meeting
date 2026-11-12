@@ -5,7 +5,9 @@
 - 별도 상태 머신을 만들지 않는다. 전이 허용 여부는 기존 전이표(is_allowed)와 ActionStore가 결정한다.
 - Agent는 '완료'를 만들 수 없다. '완료 후보'까지만 가능하다.
 - 이미 '완료 후보'인 Action은 상태를 바꾸지 않고 재판정만 기록한다. '완료' Action은 건드리지 않는다.
-- 기한경과는 상태가 아니라 판정 보조 정보다. 기한 변경 제안은 기존 due_date를 바꾸지 않고 기록만 한다.
+- 기한경과는 상태가 아니라 판정 보조 정보다. 기한 변경 제안은 기존 due_date를 바꾸지 않는다.
+- 기한경과·기한변경제안은 Action의 flags/flag_notes(기존 contract)에 부착하며 history note와 별개로 남긴다(중복 flag 없음).
+- 근거 없고 상태도 안 바뀌는 점검은 history 항목이 없으므로 flags도 쓰지 않는다.
 - 쓰기는 Action 1건당 ActionStore 호출 1회(검증 후 파일 1회 기록)다. 전체 회의 단위 트랜잭션은 범위 밖.
 """
 import copy
@@ -54,6 +56,25 @@ def _target_status(action: Mapping, result: Mapping) -> tuple:
     return proposed, ""
 
 
+def _flag_updates(action: Mapping, result: Mapping, current_meeting_date: str) -> tuple:
+    """(flags, flag_notes). 기한경과는 is_overdue(CHK024)일 때만, 기한변경제안은 새 기한 원문이 있을 때만.
+
+    기한경과 note는 회의와 무관한 고정 문구라 반복 점검해도 중복되지 않는다(회의별 기록은 history).
+    """
+    flags, notes = [], {}
+    if is_overdue(action, current_meeting_date):
+        flags.append("기한경과")
+        notes["기한경과"] = {"note": f"기한 {action['due_date_normalized']} 경과"}
+    proposed = result.get("proposed_due_date")
+    if proposed and "기한변경제안" in result.get("flags_to_add", ()):
+        flags.append("기한변경제안")
+        info = {"note": proposed}
+        if result.get("evidence"):
+            info["evidence"] = copy.deepcopy(result["evidence"])
+        notes["기한변경제안"] = info
+    return flags, notes
+
+
 def _note(action: Mapping, result: Mapping, current_meeting_date: str, guard_note: str) -> str:
     parts = [
         f"이행점검 {result['meeting_id']}: 제안={result['proposed_status']} 확신도={result['confidence']}",
@@ -87,6 +108,7 @@ def apply_followup(store, result: Mapping, transcript: Sequence[Mapping],
     note = _note(action, result, current_meeting_date, guard_note)
     evidence = copy.deepcopy(result["evidence"])
     aid = action["action_id"]
+    flags, flag_notes = _flag_updates(action, result, current_meeting_date)
 
     can_transition = (
         current != Status.DONE_CANDIDATE.value  # 완료 후보는 Agent 상태 변경 locked
@@ -94,10 +116,11 @@ def apply_followup(store, result: Mapping, transcript: Sequence[Mapping],
         and is_allowed(current, target, Actor.AGENT)
     )
     if can_transition:
-        store.change_status(aid, target, Actor.AGENT.value, evidence=evidence or None, note=note)
+        store.change_status(aid, target, Actor.AGENT.value, evidence=evidence or None, note=note,
+                            flags=flags, flag_notes=flag_notes)
         return ApplyOutcome(aid, "applied", current, target, note, review)
     if evidence:
-        store.record_reassessment(aid, evidence=evidence, note=note)
+        store.record_reassessment(aid, evidence=evidence, note=note, flags=flags, flag_notes=flag_notes)
         return ApplyOutcome(aid, "reassessed", current, current, note, review)
     # 근거 없는 재판정은 기록할 수 없고 상태도 그대로다 (언급 없음 + 이미 확인 필요 등)
     return ApplyOutcome(aid, "skipped", current, current, "근거 없음: 상태 변경·재판정 기록 없음", review)
