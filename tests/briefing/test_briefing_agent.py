@@ -249,3 +249,29 @@ def test_prompt_contains_only_briefing_input_facts(binput):
     glog = []
     generate_briefing(binput, gen_seq(good(), log=glog), rev_seq("PASS"))
     assert "도면 수정 및 공유" in glog[0] and "include_in_briefing" in glog[0]
+
+
+# T-BRIEF-REACT: 날짜 음성 표현 / 조사 어색함 prompt 규칙 + 안전 규칙 유지
+def test_prompt_has_natural_date_and_particle_rules(binput):
+    glog = []
+    generate_briefing(binput, gen_seq(good(), log=glog), rev_seq("PASS"))
+    p = glog[0]
+    assert "ISO 표기를 그대로 읽지 않는다" in p and "11월 17일까지" in p and "계산·변경하지 않는다" in p
+    assert "작은따옴표" in p and "'검토 의견 정리는'" in p and "새 사실을 추가하지 않고" in p
+
+
+def test_natural_date_phrase_allowed_but_other_date_rejected(binput):
+    ok = good()
+    ok["briefing_text"] += " 도면 수정은 11월 24일까지입니다."
+    assert code_check_briefing(binput, ok) == []
+    bad = good()
+    bad["briefing_text"] += " 도면 수정은 11월 25일까지입니다."
+    assert any(r["code"] == "기한오류" for r in code_check_briefing(binput, bad))
+
+
+def test_safety_rules_still_in_agent_definition():
+    from meeting_action_agent.briefing_agent import BRIEFING_AGENT_DEFINITION, BRIEFING_REVIEWER_DEFINITION
+    a = BRIEFING_AGENT_DEFINITION.read_text(encoding="utf-8")
+    r = BRIEFING_REVIEWER_DEFINITION.read_text(encoding="utf-8")
+    assert "완료했습니다·완료되었습니다·끝났습니다\" 금지" in a and "`overdue`가 true일 때만" in a
+    assert "overdue=false인데 기한 초과 표현" in r and "다른 날짜이면 기한오류" in r

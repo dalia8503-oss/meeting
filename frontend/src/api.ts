@@ -202,6 +202,10 @@ const API_ERRORS: Record<string, string> = {
   invalid_transition: '현재 상태에서는 허용되지 않는 처리입니다. 화면의 상태가 오래되었을 수 있습니다.',
   action_not_found: 'Action을 찾을 수 없습니다.',
   transcript_not_ready: '아직 음성 변환(STT)이 되지 않은 회의입니다.',
+  // 브리핑: REJECT 초안은 서버가 주지 않는다. 사용자에게는 안전 문구만 보여 준다.
+  briefing_rejected: '안전하게 확인되지 않은 브리핑이라 재생하지 않았습니다.',
+  briefing_review_failed: '안전하게 확인되지 않은 브리핑이라 재생하지 않았습니다.',
+  previous_meeting_not_analyzed: '선택한 이전 회의가 아직 분석되지 않았습니다.',
 }
 
 class ApiFailure extends Error {}
@@ -295,4 +299,43 @@ export function withdrawCompletion(actionId: string, actorName: string): Promise
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actor_name: actorName }) },
     '완료 철회에 실패했습니다. 잠시 후 다시 시도해 주세요.',
   )
+}
+
+export interface BriefingAudio {
+  format: 'wav'
+  media_type: string
+  duration_sec: number
+  size_bytes: number
+  /** 서버 상대 경로 (/api/briefings/{id}/audio). briefingAudioUrl()로 절대 URL을 만든다. */
+  url: string
+}
+
+export interface Briefing {
+  status: 'approved'
+  briefing_id: string
+  previous_meeting_id: string
+  current_date: string
+  briefing_text: string
+  referenced_action_ids: string[]
+  reviewer_verdict: 'PASS'
+  audio: BriefingAudio
+  /** 개발/debug 정보. 사용자 화면에는 표시하지 않는다. */
+  reused: boolean
+}
+
+/** 지난 회의 브리핑 생성(또는 저장본 조회). regenerate는 항상 false다 (MVP UI에 새로 만들기 없음). */
+export function createBriefing(previousMeetingId: string, currentDate: string): Promise<Briefing> {
+  return call<Briefing>(
+    '/api/briefings',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ previous_meeting_id: previousMeetingId, current_date: currentDate, regenerate: false }),
+    },
+    '브리핑을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.',
+  )
+}
+
+export function briefingAudioUrl(audio: BriefingAudio): string {
+  return `${API_BASE}${audio.url}`
 }

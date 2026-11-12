@@ -3,6 +3,7 @@ import {
   analyzeMeeting, createMeeting, fetchMeetings, saveSpeakerMap, transcribeMeeting,
   type ActionView, type AnalysisResult, type MeetingCreated, type SpeakerList,
 } from './api'
+import BriefingCard from './BriefingCard'
 import AnalysisView, { Progress, type Phase } from './AnalysisView'
 import PreviousMeetings, { type MeetingsLoad } from './PreviousMeetings'
 import SpeakerConfirm from './SpeakerConfirm'
@@ -144,6 +145,17 @@ export default function MeetingForm() {
             onChange={setPreviousIds}
             disabled={!!state.analyzing}
           />
+        )}
+        {/* 브리핑은 사용자가 고른 이전 회의 1건 + 이 회의의 meeting_date 기준. key가 바뀌면(회의/날짜 변경) 결과가 초기화된다. */}
+        {!state.result && previousIds.length === 1 && (
+          <BriefingCard
+            key={`${previousIds[0]}|${state.meeting.meeting_date}`}
+            previousMeetingId={previousIds[0]}
+            currentDate={state.meeting.meeting_date}
+          />
+        )}
+        {!state.result && previousIds.length > 1 && (
+          <p className="muted small">지난 회의 브리핑은 이전 회의를 하나만 선택했을 때 들을 수 있습니다.</p>
         )}
         {!state.result && state.speakers && (
           <>
