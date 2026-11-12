@@ -123,6 +123,11 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 /* 이전 회의 선택 */
 .prev-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 12px; }
 .prev-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; overflow-wrap: anywhere; }
+.prev-list { flex-direction: column; flex-wrap: nowrap; }
+.prev-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.prev-row .prev-item { flex: 1; min-width: 0; }
+.prev-delete { white-space: nowrap; color: var(--danger); text-decoration: none; }
+.prev-delete:disabled { opacity: 0.5; cursor: not-allowed; }
 .prev-item:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
 
 /* AI 협업 분석 */

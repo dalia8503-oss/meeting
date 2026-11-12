@@ -40,6 +40,29 @@ export async function fetchMeetings(): Promise<MeetingSummary[]> {
   return body.meetings
 }
 
+/** 사용자가 명시적으로 누른 회의 삭제. 서버가 성공을 돌려준 뒤에만 호출 측이 목록에서 제거한다. */
+export async function deleteMeeting(meetingId: string): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/meetings/${encodeURIComponent(meetingId)}`, { method: 'DELETE' })
+  } catch {
+    throw new Error('Backend에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.')
+  }
+  if (res.ok) return
+  let code = ''
+  try {
+    code = (await res.json())?.detail?.code ?? ''
+  } catch {
+    /* ignore */
+  }
+  const messages: Record<string, string> = {
+    meeting_referenced: '이 회의의 업무가 다른 회의에서 이미 추적되고 있어 삭제할 수 없습니다.',
+    meeting_busy: '분석 중인 회의는 삭제할 수 없습니다.',
+    meeting_not_found: '이미 삭제되었거나 찾을 수 없는 회의입니다.',
+  }
+  throw new Error(messages[code] ?? '회의를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+}
+
 const ERROR_MESSAGES: Record<string, string> = {
   missing_title: '회의명을 입력해 주세요.',
   missing_meeting_date: '회의일을 입력해 주세요.',

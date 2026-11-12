@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import briefing_service, service
 from .schemas import (
-    ActionView, AnalysisResult, AnalyzeRequest, BriefingRequest, BriefingResponse, HealthResponse, MeetingCreated, MeetingList, ReviewRequest,
+    ActionView, AnalysisResult, AnalyzeRequest, BriefingRequest, BriefingResponse, HealthResponse, MeetingCreated, MeetingDeleted, MeetingList, ReviewRequest,
     SpeakerList, SpeakerMapRequest, WithdrawRequest)
 
 router = APIRouter(prefix="/api")
@@ -48,6 +48,18 @@ def create_meeting(
         return _error(e.status, e.code, e.message)
     except Exception:  # 내부 상세는 서버 로그에만 남기고 응답에는 노출하지 않는다.
         log.exception("meeting upload failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+# 사용자가 명시적으로 누른 회의 삭제(Human management action). Agent는 이 API를 호출하지 않는다.
+@router.delete("/meetings/{meeting_id}", response_model=MeetingDeleted)
+def delete_meeting(meeting_id: str):
+    try:
+        return service.delete_meeting(meeting_id)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("meeting delete failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 

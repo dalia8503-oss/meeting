@@ -14,7 +14,7 @@ const send = (res, status, body) => {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
   })
   res.end(JSON.stringify(body))
 }
@@ -48,6 +48,14 @@ http
         }))
         .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date) || b.created_at.localeCompare(a.created_at))
       return send(res, 200, { meetings: list })
+    }
+
+    const del = p.match(/^\/api\/meetings\/([^/]+)$/)
+    if (del && req.method === 'DELETE') {
+      if (!meetings.has(del[1])) return err(res, 404, 'meeting_not_found', '')
+      if (meetings.get(del[1]).referenced) return err(res, 409, 'meeting_referenced', '')
+      meetings.delete(del[1])
+      return send(res, 200, { deleted: true, meeting_id: del[1] })
     }
 
     if (p === '/api/meetings' && req.method === 'POST') {

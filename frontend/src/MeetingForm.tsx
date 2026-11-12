@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import {
   analyzeMeeting, createMeeting, fetchMeetings, saveSpeakerMap, transcribeMeeting,
   type ActionView, type AnalysisResult, type MeetingCreated, type SpeakerList,
@@ -44,6 +44,23 @@ export default function MeetingForm() {
     return fetchMeetings()
       .then((list) => setPrevLoad({ s: 'ok', meetings: list }))
       .catch(() => setPrevLoad({ s: 'error' }))
+  }
+
+  // 등록 전 화면에서도 지난 회의 목록을 바로 볼 수 있어야 한다.
+  useEffect(() => {
+    let alive = true // 초기 state가 이미 loading이므로 setState는 응답 시점에만 호출한다.
+    fetchMeetings()
+      .then((list) => alive && setPrevLoad({ s: 'ok', meetings: list }))
+      .catch(() => alive && setPrevLoad({ s: 'error' }))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  /** 삭제 성공 후: 선택에서 제거하고(브리핑 카드도 key/조건으로 함께 사라진다) 목록을 다시 불러온다. */
+  const onDeleted = (id: string) => {
+    setPreviousIds((ids) => ids.filter((x) => x !== id))
+    void loadPrevious()
   }
 
   const onDrop = (e: DragEvent) => {
@@ -143,7 +160,8 @@ export default function MeetingForm() {
             load={prevLoad.s === 'ok' ? { s: 'ok', meetings: prevLoad.meetings.filter((m) => m.meeting_id !== state.meeting.meeting_id) } : prevLoad}
             selected={previousIds}
             onChange={setPreviousIds}
-            disabled={!!state.analyzing}
+            onDeleted={onDeleted}
+            disabled={!!state.analyzing || !!state.preparing}
           />
         )}
         {/* 브리핑은 사용자가 고른 이전 회의 1건 + 이 회의의 meeting_date 기준. key가 바뀌면(회의/날짜 변경) 결과가 초기화된다. */}
@@ -222,6 +240,19 @@ export default function MeetingForm() {
         </button>
       </div>
     </form>
+    <PreviousMeetings
+      load={prevLoad}
+      selected={previousIds}
+      onChange={setPreviousIds}
+      onDeleted={onDeleted}
+      disabled={busy}
+    />
+    {previousIds.length === 1 && (
+      <BriefingCard key={`${previousIds[0]}|${date}`} previousMeetingId={previousIds[0]} currentDate={date} />
+    )}
+    {previousIds.length > 1 && (
+      <p className="muted small">지난 회의 브리핑은 이전 회의를 하나만 선택했을 때 들을 수 있습니다.</p>
+    )}
     <Progress phase={phase} />
     </>
   )

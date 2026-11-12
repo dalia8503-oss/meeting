@@ -18,7 +18,7 @@ from ..speakers import SpeakerMapError, confirmed_names, list_speakers, validate
 from ..store import ActionStore
 from .mode import get_data_root, get_mode
 from .schemas import (
-    ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingSummary, SpeakerItem, SpeakerList)
+    ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingDeleted, MeetingSummary, SpeakerItem, SpeakerList)
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 _CHUNK = 1 << 20
@@ -112,6 +112,114 @@ def list_meetings() -> list:
     out.sort(key=lambda m: m.created_at or "", reverse=True)
     out.sort(key=lambda m: m.meeting_date, reverse=True)
     return out
+
+
+# ---------------------------------------------------------------- delete (사용자가 명시한 회의 삭제)
+
+_MEETING_FILE_SUFFIXES = (".meta.json", ".audio.json", ".analysis.json", ".review.json", ".run.json", ".followups.json")
+_AUDIO_EXTS = (".mp3", ".wav", ".m4a")
+_REFERENCED = ApiError(409, "meeting_referenced",
+                       "이 회의의 업무가 다른 회의에서 이미 추적되고 있어 삭제할 수 없습니다.")
+
+
+def _meeting_ids_in(obj, found: set) -> set:
+    """중첩 구조 안의 모든 "meeting_id" 값을 모은다 (evidence·approval·flag_notes 등)."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "meeting_id" and isinstance(v, str):
+                found.add(v)
+            else:
+                _meeting_ids_in(v, found)
+    elif isinstance(obj, list):
+        for v in obj:
+            _meeting_ids_in(v, found)
+    return found
+
+
+def _mentions(path: Path, tokens) -> bool:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(t in text for t in tokens)
+
+
+def _inside(root: Path, path: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def delete_meeting(meeting_id: str) -> MeetingDeleted:
+    """회의 1건과 그 회의에 속한 산출물(녹음·메타·transcript·분석·run·followups·브리핑·원천 Action)을 삭제한다.
+    다른 회의의 Follow-up/이전 회의 선택/Action 이력이 이 회의를 참조하면 409로 막고 아무것도 지우지 않는다."""
+    mid, root, meta_path, _, _ = _paths(meeting_id)
+    meetings = root / "meetings"
+    if not meta_path.is_file():
+        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
+    with _running_lock:
+        if mid in _running:
+            raise ApiError(409, "meeting_busy", "분석 중인 회의는 삭제할 수 없습니다.")
+
+    # 1) 참조 검사 — 삭제 전에 전부 끝낸다.
+    actions_path = root / "actions" / "actions.json"
+    actions = ActionStore(actions_path)._read() if actions_path.is_file() else []
+    own_action_ids = {a.get("action_id") for a in actions if a.get("meeting_id") == mid}
+    for a in actions:
+        ids = _meeting_ids_in(a, set())
+        if a.get("meeting_id") == mid:
+            if ids - {mid}:       # 이 회의의 Action이 다른 회의에서 판단·근거가 추가됨
+                raise _REFERENCED
+        elif mid in ids:          # 다른 회의의 Action이 이 회의를 근거로 참조
+            raise _REFERENCED
+    tokens = (json.dumps(mid), json.dumps(mid, ensure_ascii=False))
+    for other in meetings.glob("*.meta.json"):
+        oid = other.name[: -len(".meta.json")]
+        if oid == mid:
+            continue
+        for suffix in (".run.json", ".followups.json"):
+            p = meetings / f"{oid}{suffix}"
+            if p.is_file() and _mentions(p, tokens):  # 이전 회의로 선택됨 / 이 회의 Action의 Follow-up
+                raise _REFERENCED
+        fp = meetings / f"{oid}.followups.json"
+        if own_action_ids and fp.is_file():
+            try:
+                rows = _read_json(fp)
+            except (OSError, ValueError):
+                rows = []
+            if any(isinstance(r, dict) and r.get("action_id") in own_action_ids for r in rows):
+                raise _REFERENCED
+
+    # 2) 브리핑 산출물: 기록의 previous_meeting_id로 이 회의 것임이 확인된 것만. 판단 불가하면 삭제하지 않는다.
+    targets = []
+    bdir = root / "briefings"
+    if bdir.is_dir():
+        for rec_path in bdir.glob("*.json"):
+            try:
+                owner = _read_json(rec_path).get("previous_meeting_id")
+            except (OSError, ValueError, AttributeError):
+                owner = None
+                if rec_path.name.startswith(f"{mid}_"):
+                    raise ApiError(409, "briefing_unclear", "연결된 브리핑을 확인할 수 없어 삭제하지 않았습니다.") from None
+            if owner == mid:
+                targets += [rec_path, rec_path.with_suffix(".wav")]
+
+    # 3) 삭제. meta.json은 마지막에 지워, 중간 실패 시에도 목록에 남아 다시 시도할 수 있게 한다.
+    targets += [root / "audio" / f"{mid}{e}" for e in _AUDIO_EXTS]
+    targets.append(_transcript_path(root, mid))
+    targets += [meetings / f"{mid}{s}" for s in _MEETING_FILE_SUFFIXES if s != ".meta.json"]
+    if own_action_ids:
+        ActionStore(actions_path).remove_by_meeting(mid)
+    for p in targets:
+        if p.is_file() and _inside(root, p):
+            p.unlink()
+    for tmp in meetings.glob(f"{mid}.*.tmp"):
+        if _inside(root, tmp) and tmp.name.startswith(f"{mid}."):
+            tmp.unlink()
+    meta_path.unlink()
+    return MeetingDeleted(deleted=True, meeting_id=mid)
 
 
 # ---------------------------------------------------------------- analyze (orchestration only)

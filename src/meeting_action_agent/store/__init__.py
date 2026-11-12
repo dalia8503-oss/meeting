@@ -276,6 +276,14 @@ class ActionStore:
             _validate_stored_action(action)
         return actions
 
+    def remove_by_meeting(self, meeting_id: str) -> int:
+        """meeting_id가 원천 회의인 Action만 제거한다 (사용자가 명시한 회의 삭제 전용). 제거 개수를 반환한다."""
+        actions = self._read()
+        kept = [a for a in actions if a.get("meeting_id") != meeting_id]
+        if len(kept) != len(actions):
+            self._write(kept)
+        return len(actions) - len(kept)
+
     @staticmethod
     def _find(actions: list, action_id) -> dict:
         for action in actions:

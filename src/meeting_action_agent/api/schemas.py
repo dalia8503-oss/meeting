@@ -26,6 +26,11 @@ class MeetingSummary(BaseModel):
     action_count: int
 
 
+class MeetingDeleted(BaseModel):
+    deleted: bool
+    meeting_id: str
+
+
 class MeetingList(BaseModel):
     meetings: List[MeetingSummary]
 
