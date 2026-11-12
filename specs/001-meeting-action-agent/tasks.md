@@ -124,10 +124,10 @@
 - [x] T-09-5 (due_date 유지·history note·`flags`/`flag_notes` 부착 구현됨 — `followup_apply._flag_updates`, `store._merge_flags`, 중복 flag 없음, 다른 회의 evidence 보존) 기한 변경 발언은 `기한변경제안`으로만 표시 (새 기한 원문은 `flag_notes`, 기한 덮어쓰기 금지)
 - [x] T-09-6 Agent 출력 enum에서 `완료` 금지 (가드 자체는 T-03-3) — FollowupResult `완료` 거부 + 완료 후보 PASS여도 Agent 완료 불가 테스트 (`tests/manager/test_followup_apply.py`)
 - [x] T-09-7 결과를 Reviewer에 전달, REJECT 시 재분석 1회 후 재검증, 최종 PASS일 때만 apply (Follow-up 판정 최대 2회·Reviewer 최대 2회, 2차 invalid면 Reviewer #2 없이 종료) — `followup_apply.apply_followup_with_retry` / `apply_followups_with_retry`
-- [ ] T-09-8 2차 회의의 신규 지시도 `/analyze-meeting` 흐름으로 추출, 이후 `action_id` 이어서 발급
+- [x] T-09-8 2차 회의의 신규 지시도 `/analyze-meeting` 흐름으로 추출, 이후 `action_id` 이어서 발급 — `pipeline.run_meeting_pipeline`/`orchestrator.run_orchestrated_meeting` (`tests/test_followup_pipeline.py`·`tests/test_orchestrator.py`: A-001 완료 후보 + A-002 신규)
 - [ ] T-09-9 **⚠ 수정 대상**(재판정 기록·FollowupResult 보존 방식 data-model 8장 #16 결정 후 반영) 테스트: SPEC 8장 시나리오 (A-001 → 완료 후보, 00:08:31, 완료 후보 이상으로 승격되지 않음), 정답표 대비 상태 일치율 측정
-- [ ] T-09-10 `기한경과` 판정: 비교 기준(신규 회의 `meeting_date` vs `due_date_normalized`), `due_date_normalized`가 null일 때의 처리, `진행중` 외 `미완료`에도 붙는지. **CHK024 결정됨 (2026-11-12)**: 비교 기준·null 처리는 `is_overdue`로 구현·테스트. `기한경과` flag/flag_notes 부착 저장 경로는 구현됨(2026-11-12, 상태·flags·history 1회 저장, `is_overdue`일 때만, 완료 Action 제외). 남은 일: 파이프라인 연결(T-09-11)
-- [ ] T-09-11 **이행점검 파이프라인 연결**: 점검 대상 로드(T-08) → 근거 탐색·판정(T-09-2~5) → Reviewer(T-09-7) → 상태 변경 저장(`history` 기록). LLM 어댑터 사용, fixture 모드 지원 ← T-00-14, T-07-5, T-08-4
+- [x] T-09-10 `기한경과` 판정: 비교 기준(신규 회의 `meeting_date` vs `due_date_normalized`), `due_date_normalized`가 null일 때의 처리, `진행중` 외 `미완료`에도 붙는지. **CHK024 결정됨 (2026-11-12)**: 비교 기준·null 처리는 `is_overdue`로 구현·테스트. `기한경과` flag/flag_notes 부착 저장 경로는 구현됨(2026-11-12, 상태·flags·history 1회 저장, `is_overdue`일 때만, 완료 Action 제외). 파이프라인 연결 완료(T-09-11)
+- [x] T-09-11 **이행점검 파이프라인 연결**: 점검 대상 로드(T-08) → 근거 탐색·판정(T-09-2~5) → Reviewer(T-09-7) → 상태 변경 저장(`history` 기록). LLM 어댑터 사용, fixture 모드 지원 ← T-00-14, T-07-5, T-08-4 (완료: `pipeline.run_meeting_pipeline` 커밋 bde8e87, Multi-Agent 병렬 실행은 `orchestrator.run_orchestrated_meeting`)
 
 ## 10. 사람 승인 (B) ← 3장, 9장
 
@@ -140,7 +140,7 @@
 
 ## 11. Dashboard (공동) ← 7~10장
 
-- [ ] T-11-1 React/Vite + FastAPI 앱 골격 (하위: (a) Backend 골격·`/api/health`·mode·CORS, (b) frontend 골격·health 연결 배지, 이후 API endpoint는 이 Task 하위로 관리; 진행: (a)(b) 완료; (d) analyze 경로 DEMO·LIVE(Gemini 1회 E2E, 2026-11-12) 검증 완료 — 나머지 endpoint 미구현으로 Task는 미완료. 후속 메모(pipeline atomicity follow-up, 새 Task 번호 미부여): Reviewer가 여러 후보를 처리하다 중간 후보에서 실패하면 앞선 Action이 일부 저장될 수 있음 — 구조 개선 TODO)
+- [ ] T-11-1 React/Vite + FastAPI 앱 골격 (하위: (a) Backend 골격·`/api/health`·mode·CORS, (b) frontend 골격·health 연결 배지, 이후 API endpoint는 이 Task 하위로 관리; 진행: (a)(b) 완료; (d) analyze 경로 DEMO·LIVE(Gemini 1회 E2E, 2026-11-12) 검증 완료 — (e) 2차 회의 Multi-Agent 연결(`analyze` + `previous_meeting_ids`·`execution`·`followup_results`)과 Human Review endpoint(`POST /api/actions/{id}/review`, `/withdraw-completion`) 구현(React 미연결) — frontend 연결과 나머지 화면이 남아 Task는 미완료. 후속 메모(pipeline atomicity follow-up, 새 Task 번호 미부여): Reviewer가 여러 후보를 처리하다 중간 후보에서 실패하면 앞선 Action이 일부 저장될 수 있음 — 구조 개선 TODO)
 - [ ] T-11-2 회의 요약 영역 (핵심 논의 / 결정 / 미결 건수)
 - [ ] T-11-3 신규 지시 표 (상태, 담당, 지시사항, 기한 원문+환산)
 - [ ] T-11-4 이전 지시 이행점검 표 (상태, 담당, Action, 근거 타임스탬프)

@@ -1,11 +1,12 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Body, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
 from . import service
-from .schemas import AnalysisResult, HealthResponse, MeetingCreated
+from .schemas import (
+    ActionView, AnalysisResult, AnalyzeRequest, HealthResponse, MeetingCreated, ReviewRequest, WithdrawRequest)
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
@@ -42,9 +43,9 @@ def create_meeting(
 
 # meeting_id만 URL로 받는다. mode/provider/model은 서버 설정(MAA_MODE, 환경변수)만 따른다.
 @router.post("/meetings/{meeting_id}/analyze", response_model=AnalysisResult)
-def analyze_meeting(meeting_id: str):
+def analyze_meeting(meeting_id: str, body: Optional[AnalyzeRequest] = Body(None)):
     try:
-        return service.analyze_meeting(meeting_id)
+        return service.analyze_meeting(meeting_id, body.previous_meeting_ids if body else None)
     except service.ApiError as e:
         return _error(e.status, e.code, e.message)
     except Exception:
@@ -60,4 +61,26 @@ def get_result(meeting_id: str):
         return _error(e.status, e.code, e.message)
     except Exception:
         log.exception("result lookup failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+@router.post("/actions/{action_id}/review", response_model=ActionView)
+def review_action(action_id: str, body: ReviewRequest):
+    try:
+        return service.review(action_id, body.choice, body.actor_name, body.meeting_id, body.timestamp)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("action review failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+@router.post("/actions/{action_id}/withdraw-completion", response_model=ActionView)
+def withdraw_completion(action_id: str, body: WithdrawRequest):
+    try:
+        return service.withdraw(action_id, body.actor_name)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("completion withdraw failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")

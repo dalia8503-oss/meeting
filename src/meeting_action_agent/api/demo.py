@@ -44,3 +44,22 @@ def make_demo_analyst(meeting_id: str):
 
 def demo_reviewer(prompt: str) -> dict:
     return {"target": {"type": "action", "ref": "00:00:12"}, "verdict": "PASS", "reasons": [], "attempt": 0}
+
+
+def _input_after(prompt: str, marker: str):
+    return json.JSONDecoder().raw_decode(prompt.split(marker, 1)[1])[0]
+
+
+def demo_followup_runner(prompt: str) -> str:
+    """DEMO 이행점검: 고정 시나리오 녹취는 이전 Action을 언급하지 않는다 → 확인 필요 + 근거 없음 (Action 불변)."""
+    payload = _input_after(prompt, "## INPUT\n")
+    return json.dumps({
+        "meeting_id": payload["transcript"][0]["meeting_id"], "action_id": payload["action"]["action_id"],
+        "proposed_status": "확인 필요", "confidence": "하", "evidence": [], "flags_to_add": [],
+        "reason": "DEMO 고정 녹취에는 이전 Action 언급이 없다.",
+    }, ensure_ascii=False)
+
+
+def demo_followup_reviewer(prompt: str) -> dict:
+    ref = _input_after(prompt, "## INPUT\n")["followup_result"]["action_id"]
+    return {"target": {"type": "followup", "ref": ref}, "verdict": "PASS", "reasons": [], "attempt": 0}

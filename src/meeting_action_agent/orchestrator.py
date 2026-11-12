@@ -94,7 +94,9 @@ def _thread_name() -> str:
     return threading.current_thread().name
 
 
-def _has_previous_actions(store, transcript: Sequence[Mapping]) -> bool:
+def _has_previous_actions(store, transcript: Sequence[Mapping], previous_meeting_ids=None) -> bool:
+    if previous_meeting_ids is not None and len(previous_meeting_ids) == 0:
+        return False  # 이전 회의를 명시적으로 지정하지 않음(빈 목록): 신규 회의 분석만 한다. None은 기존 동작(전체) 유지.
     current = {u["meeting_id"] for u in transcript}
     return any(a["meeting_id"] not in current for a in store.load_all())
 
@@ -112,7 +114,7 @@ def run_orchestrated_meeting(
     meetings_dir=None,
 ) -> OrchestrationResult:
     """run_meeting_pipeline과 같은 입력. 2차 회의의 두 독립 Branch를 동시에 분석·검증한 뒤 순차 반영한다."""
-    if not _has_previous_actions(store, transcript):
+    if not _has_previous_actions(store, transcript, previous_meeting_ids):
         return _run_first_meeting(transcript, analyst_runner, candidate_reviewer_runner,
                                   store=store, metadata=metadata)
 

@@ -25,6 +25,9 @@ def run_audio_pipeline(
     speaker_map: Optional[Mapping] = None,
     participants: Optional[Sequence[str]] = None,
     title: Optional[str] = None,
+    followup_runner: Optional[Callable] = None,
+    followup_reviewer_runner: Optional[Callable] = None,
+    previous_meeting_ids: Optional[Sequence[str]] = None,
 ) -> dict:
     root = Path(root)
     metadata = {"meeting_id": meeting_id, "meeting_date": meeting_date}
@@ -52,8 +55,25 @@ def run_audio_pipeline(
         transcript_path = save_original_transcript(transcript, root)
 
     store = ActionStore(store_path)
-    reviewed = extract_review_convert(transcript, analyst_runner, reviewer_runner, store=store, metadata=metadata)
+    orchestration = None
+    if followup_runner is None:  # 기존 호환 경로 (CLI): 단일 Agent 순차
+        reviewed = extract_review_convert(transcript, analyst_runner, reviewer_runner, store=store, metadata=metadata)
+    else:  # T-11 Multi-Agent: 1차/2차 판단은 Orchestrator가 한다
+        from meeting_action_agent.orchestrator import run_orchestrated_meeting
+        orchestration = run_orchestrated_meeting(
+            transcript, analyst_runner=analyst_runner, candidate_reviewer_runner=reviewer_runner,
+            followup_runner=followup_runner, followup_reviewer_runner=followup_reviewer_runner or reviewer_runner,
+            store=store, metadata=metadata, previous_meeting_ids=previous_meeting_ids,
+            meetings_dir=root / "meetings")
+        reviewed = orchestration.new_actions
+    if reviewed is None:  # 신규 경로가 격리된 도메인 오류로 실패 (orchestration.new_actions_error)
+        return {
+            "audio": str(audio_path), "transcript": str(transcript_path), "utterances": len(transcript),
+            "actions": store.load_all(), "rejected": [], "reviews": [], "analysis": None, "outcomes": [],
+            "orchestration": orchestration,
+        }
     return {
+        "orchestration": orchestration,
         "audio": str(audio_path), "transcript": str(transcript_path), "utterances": len(transcript),
         "actions": store.load_all(),
         "rejected": list(reviewed.rejected), "reviews": list(reviewed.reviews),
