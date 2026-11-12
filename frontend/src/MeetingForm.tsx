@@ -1,6 +1,6 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react'
 import { analyzeMeeting, createMeeting, type AnalysisResult, type MeetingCreated } from './api'
-import AnalysisView, { AnalysisProgress } from './AnalysisView'
+import AnalysisView, { Progress, type Phase } from './AnalysisView'
 
 type State =
   | { s: 'idle' }
@@ -59,43 +59,50 @@ export default function MeetingForm() {
     }
   }
 
+  const phase: Phase =
+    state.s === 'success' ? (state.result ? 'done' : state.analyzing ? 'analyzing' : 'uploaded') : 'idle'
+
   if (state.s === 'success') {
     return (
-      <section className="card">
-        <h2>회의 등록 완료</h2>
-        <p className="muted small">
-          {state.meeting.title} · {state.meeting.meeting_date} · {state.meeting.audio_filename}
-        </p>
-        <p className="muted tiny">meeting_id: {state.meeting.meeting_id}</p>
-        {state.result ? (
-          <AnalysisView result={state.result} />
-        ) : (
-          <>
-            {state.analyzing && <AnalysisProgress done={false} />}
-            {state.error && <p className="error" role="alert">{state.error}</p>}
-            <button type="button" disabled={state.analyzing} onClick={() => analyze(state.meeting)}>
-              {state.error ? '다시 분석' : '회의 분석 시작'}
+      <>
+        <section className="panel meeting-head">
+          <div className="mh-info">
+            <h2 className="mh-title">{state.meeting.title}</h2>
+            <span className="muted small">회의일 {state.meeting.meeting_date}</span>
+            <span className="muted small">🎙 {state.meeting.audio_filename}</span>
+          </div>
+          <div className="mh-actions">
+            {!state.result && (
+              <button type="button" className="btn-primary" disabled={state.analyzing} onClick={() => analyze(state.meeting)}>
+                {state.error ? '다시 분석' : '회의 분석 시작'}
+              </button>
+            )}
+            <button type="button" className="btn-link" disabled={state.analyzing} onClick={reset}>
+              새 회의 등록
             </button>
-          </>
-        )}
-        <button type="button" className="link" disabled={state.analyzing} onClick={reset}>
-          새 회의 등록
-        </button>
-      </section>
+          </div>
+        </section>
+        {state.error && <p className="error" role="alert">{state.error}</p>}
+        <Progress phase={phase} />
+        {state.result && <AnalysisView result={state.result} />}
+      </>
     )
   }
 
   return (
-    <form className="card" onSubmit={submit} noValidate>
-      <h2>새 회의</h2>
-      <label>
-        회의명
-        <input value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
-      </label>
-      <label>
-        회의일
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={busy} />
-      </label>
+    <>
+    <form className="panel meeting-form" onSubmit={submit} noValidate>
+      <h2 className="panel-title">회의 등록</h2>
+      <div className="form-row">
+        <label>
+          회의명
+          <input value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} />
+        </label>
+        <label>
+          회의일
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={busy} />
+        </label>
+      </div>
       <div
         className={`drop${drag ? ' drop-over' : ''}`}
         onClick={() => !busy && input.current?.click()}
@@ -120,10 +127,12 @@ export default function MeetingForm() {
       {busy && <p className="muted">회의 파일을 업로드하고 있습니다...</p>}
       {state.s === 'error' && <p className="error" role="alert">{state.message}</p>}
       <div className="actions">
-        <button type="submit" disabled={busy}>
+        <button type="submit" className="btn-primary" disabled={busy}>
           회의 등록
         </button>
       </div>
     </form>
+    <Progress phase={phase} />
+    </>
   )
 }

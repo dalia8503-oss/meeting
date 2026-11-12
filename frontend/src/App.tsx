@@ -27,11 +27,7 @@ export default function App() {
           )}
         </div>
       </header>
-      <p className="tagline">
-        회의에서 결정된 일을
-        <br />
-        완료될 때까지 추적합니다.
-      </p>
+      <p className="tagline">회의에서 결정된 일을 완료될 때까지 추적합니다</p>
       <MeetingForm />
     </main>
   )
