@@ -60,3 +60,64 @@ export async function createMeeting(form: {
   }
   return (await res.json()) as MeetingCreated
 }
+
+export interface SummaryItem {
+  text: string
+  evidence_timestamps: string[]
+}
+
+export interface ActionView {
+  action_id: string
+  status: string
+  assignee: string
+  assigner: string
+  task: string
+  due_date: string | null
+  due_date_normalized: string | null
+  flags: string[]
+  evidence: { timestamp: string; speaker: string | null; text: string }
+}
+
+export interface AnalysisResult {
+  meeting_id: string
+  status: 'analyzed'
+  mode: Mode
+  utterance_count: number
+  summary: SummaryItem[]
+  decisions: SummaryItem[]
+  open_issues: SummaryItem[]
+  needs_confirmation: SummaryItem[]
+  actions: ActionView[]
+  rejected: { task: string; assignee: string; timestamp: string; evidence: string }[]
+}
+
+const ANALYZE_ERRORS: Record<string, string> = {
+  meeting_not_found: '회의를 찾을 수 없습니다.',
+  already_analyzed: '이미 분석된 회의입니다.',
+  analysis_in_progress: '이 회의는 분석이 진행 중입니다.',
+  gemini_not_configured: 'LIVE 모드에 필요한 Gemini API 키가 서버에 설정되어 있지 않습니다.',
+  stt_failed: '음성 변환(STT)에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  analysis_invalid: '회의 분석 결과가 검증을 통과하지 못했습니다. 다시 시도해 주세요.',
+  review_failed: 'Reviewer 검증에 실패했습니다. 다시 시도해 주세요.',
+  audio_integrity_error: '원본 녹음이 변경된 것으로 보여 분석을 중단했습니다.',
+}
+
+/** 동기 요청이다. 서버가 진행률을 주지 않으므로 호출 측은 "분석 중"만 표시한다. */
+export async function analyzeMeeting(meetingId: string): Promise<AnalysisResult> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/api/meetings/${encodeURIComponent(meetingId)}/analyze`, { method: 'POST' })
+  } catch {
+    throw new Error('Backend에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.')
+  }
+  if (!res.ok) {
+    let code = ''
+    try {
+      code = (await res.json())?.detail?.code ?? ''
+    } catch {
+      /* ignore */
+    }
+    throw new Error(ANALYZE_ERRORS[code] ?? '회의 분석에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+  }
+  return (await res.json()) as AnalysisResult
+}

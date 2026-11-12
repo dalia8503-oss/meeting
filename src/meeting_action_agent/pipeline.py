@@ -6,7 +6,7 @@
 - 후보의 extra_evidence(여러 발언에 걸친 근거)를 원본 Utterance로 재연결한다 (speaker/text 추측 금지).
 """
 from dataclasses import dataclass
-from typing import Callable, Mapping, Sequence, Union
+from typing import Callable, Mapping, Optional, Sequence, Union
 
 from meeting_action_agent.analyst import AnalysisValidationError, analyze_transcript, relink_utterance
 from meeting_action_agent.manager import ConversionResult, convert_candidate
@@ -54,6 +54,7 @@ class ReviewedResult:
     conversion: ConversionResult
     reviews: tuple    # review-result dict들 (후보 순서)
     rejected: tuple   # REJECT된 후보 dict들 — Action 생성 없음 (재시도·큐 적재는 T-06-7/8)
+    analysis: Optional[dict] = None  # 검증을 통과한 MeetingAnalysis (표시·저장용, 수정 없음)
 
 
 def extract_review_convert(
@@ -81,4 +82,4 @@ def extract_review_convert(
         result = convert_candidate(candidate, utterance=utterance, mentions=mentions, metadata=metadata,
                                    reviewer_passed=True, store=store)
         outcomes.extend(result.outcomes)
-    return ReviewedResult(ConversionResult(tuple(outcomes)), tuple(reviews), tuple(rejected))
+    return ReviewedResult(ConversionResult(tuple(outcomes)), tuple(reviews), tuple(rejected), analysis)

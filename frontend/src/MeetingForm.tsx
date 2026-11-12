@@ -1,10 +1,11 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react'
-import { createMeeting, type MeetingCreated } from './api'
+import { analyzeMeeting, createMeeting, type AnalysisResult, type MeetingCreated } from './api'
+import AnalysisView, { AnalysisProgress } from './AnalysisView'
 
 type State =
   | { s: 'idle' }
   | { s: 'uploading' }
-  | { s: 'success'; meeting: MeetingCreated }
+  | { s: 'success'; meeting: MeetingCreated; analyzing?: boolean; error?: string; result?: AnalysisResult }
   | { s: 'error'; message: string }
 
 const ACCEPT = '.mp3,.wav,.m4a'
@@ -48,6 +49,16 @@ export default function MeetingForm() {
     setState({ s: 'idle' })
   }
 
+  const analyze = async (meeting: MeetingCreated) => {
+    setState({ s: 'success', meeting, analyzing: true })
+    try {
+      const result = await analyzeMeeting(meeting.meeting_id)
+      setState({ s: 'success', meeting, result })
+    } catch (err) {
+      setState({ s: 'success', meeting, error: err instanceof Error ? err.message : '회의 분석에 실패했습니다.' })
+    }
+  }
+
   if (state.s === 'success') {
     return (
       <section className="card">
@@ -56,11 +67,18 @@ export default function MeetingForm() {
           {state.meeting.title} · {state.meeting.meeting_date} · {state.meeting.audio_filename}
         </p>
         <p className="muted tiny">meeting_id: {state.meeting.meeting_id}</p>
-        <button type="button" disabled>
-          회의 분석 시작
-        </button>
-        <p className="muted small">다음 단계에서 분석 기능이 연결됩니다.</p>
-        <button type="button" className="link" onClick={reset}>
+        {state.result ? (
+          <AnalysisView result={state.result} />
+        ) : (
+          <>
+            {state.analyzing && <AnalysisProgress done={false} />}
+            {state.error && <p className="error" role="alert">{state.error}</p>}
+            <button type="button" disabled={state.analyzing} onClick={() => analyze(state.meeting)}>
+              {state.error ? '다시 분석' : '회의 분석 시작'}
+            </button>
+          </>
+        )}
+        <button type="button" className="link" disabled={state.analyzing} onClick={reset}>
           새 회의 등록
         </button>
       </section>

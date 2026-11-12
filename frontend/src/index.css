@@ -23,3 +23,10 @@ h1 { font-size: 1.4rem; letter-spacing: 0.08em; margin: 0; }
 .small { font-size: 13px; }
 .tiny { font-size: 11px; }
 .error { color: #d33; margin: 0; }
+
+.steps { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 4px; }
+.step-done { color: #2e7d32; }
+.step-wait { color: #888; }
+.action-list { list-style: none; padding: 0; display: grid; gap: 12px; }
+.action { border: 1px solid #ddd; border-radius: 8px; padding: 12px; }
+.action blockquote { margin: 8px 0 0; padding-left: 8px; border-left: 3px solid #ccc; }

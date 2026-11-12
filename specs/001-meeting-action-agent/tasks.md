@@ -140,7 +140,7 @@
 
 ## 11. Dashboard (공동) ← 7~10장
 
-- [ ] T-11-1 React/Vite + FastAPI 앱 골격 (하위: (a) Backend 골격·`/api/health`·mode·CORS, (b) frontend 골격·health 연결 배지, 이후 API endpoint는 이 Task 하위로 관리; 진행: (a)(b) 완료 — 나머지 endpoint 미구현으로 Task는 미완료)
+- [ ] T-11-1 React/Vite + FastAPI 앱 골격 (하위: (a) Backend 골격·`/api/health`·mode·CORS, (b) frontend 골격·health 연결 배지, 이후 API endpoint는 이 Task 하위로 관리; 진행: (a)(b) 완료; (d) analyze 경로 DEMO·LIVE(Gemini 1회 E2E, 2026-11-12) 검증 완료 — 나머지 endpoint 미구현으로 Task는 미완료. 후속 메모(pipeline atomicity follow-up, 새 Task 번호 미부여): Reviewer가 여러 후보를 처리하다 중간 후보에서 실패하면 앞선 Action이 일부 저장될 수 있음 — 구조 개선 TODO)
 - [ ] T-11-2 회의 요약 영역 (핵심 논의 / 결정 / 미결 건수)
 - [ ] T-11-3 신규 지시 표 (상태, 담당, 지시사항, 기한 원문+환산)
 - [ ] T-11-4 이전 지시 이행점검 표 (상태, 담당, Action, 근거 타임스탬프)
