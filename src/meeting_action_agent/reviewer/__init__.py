@@ -78,3 +78,58 @@ def review_candidate(
     if result["target"] != {"type": "action", "ref": ref}:
         raise ReviewOutputError(f"Reviewer 대상 불일치: {result['target']} != action/{ref}")
     return result
+
+
+# ----- T-09-7: FollowupResult 검증 (read-only) -----
+
+def build_followup_prompt(action: Mapping, transcript, result: Mapping, attempt: int = 0) -> str:
+    schema = (CONTRACTS_DIR / "review-result.schema.json").read_text(encoding="utf-8")
+    payload = {"previous_action": dict(action), "transcript": list(transcript), "followup_result": dict(result)}
+    return (
+        "# Reviewer - 이행점검 판정(FollowupResult) 검증\n"
+        "PASS/REJECT와 사유만 낸다. 판정·근거·Action·상태·담당자·기한을 수정하거나 추측하지 않는다.\n"
+        "- 판정이 근거와 일치하는가 / 근거가 transcript에 실재하는가\n"
+        "- 완료 후보에 실제 완료형 표현이 있는가 (질문·제안·부정·미수행 표현을 완료로 오판하지 않았는가)\n"
+        "- 담당자를 추측하지 않았는가\n\n"
+        f"## 출력 스키마 (review-result.schema.json)\n{schema}\n\n"
+        "## INPUT\n" + json.dumps(payload, ensure_ascii=False, indent=1)
+        + f"\n\nattempt={attempt}. target은 type=followup, ref=action_id. 판정 JSON 하나만 출력하라."
+    )
+
+
+def code_check_followup(action: Mapping, transcript, result: Mapping) -> list:
+    """결정적 검증. 위반 사유 목록(빈 목록이면 통과). 입력은 변경하지 않는다."""
+    from meeting_action_agent.manager.followup import FollowupValidationError, validate_followup
+    from meeting_action_agent.state import CompletionGuardError
+
+    try:
+        validate_followup(result, action, transcript)
+    except CompletionGuardError as e:
+        return [{"code": "완료설정", "detail": str(e)}]
+    except SchemaValidationError as e:
+        return [{"code": "필수필드누락", "detail": str(e)}]
+    except FollowupValidationError as e:
+        code = "인용불일치" if "원문과 다름" in str(e) else "판정비도출"
+        return [{"code": code, "detail": str(e)}]
+    return []
+
+
+def review_followup(action: Mapping, transcript, result: Mapping,
+                    runner: Callable[[str], Union[str, dict]], *, attempt: int = 0) -> dict:
+    """FollowupResult 1건 판정. 입력은 변경하지 않는다 (복사본만 runner에 전달)."""
+    import copy
+
+    ref = result["action_id"]
+    failed = code_check_followup(action, transcript, result)
+    if failed:
+        return {"target": {"type": "followup", "ref": ref}, "verdict": "REJECT", "reasons": failed, "attempt": attempt}
+    raw = runner(build_followup_prompt(copy.deepcopy(dict(action)), copy.deepcopy(list(transcript)),
+                                       copy.deepcopy(dict(result)), attempt))
+    try:
+        verdict = json.loads(raw) if isinstance(raw, str) else raw
+        receive_agent_output("review-result", verdict)
+    except (json.JSONDecodeError, SchemaValidationError) as e:
+        raise ReviewOutputError(f"Reviewer 출력 거부: {e}") from e
+    if verdict["target"] != {"type": "followup", "ref": ref}:
+        raise ReviewOutputError(f"Reviewer 대상 불일치: {verdict['target']} != followup/{ref}")
+    return verdict

@@ -158,7 +158,7 @@ def check_previous_actions(
 def save_followups(results: Sequence[Mapping], meeting_id: str, meetings_dir) -> Path:
     """meetings/<meeting_id>.followups.json 으로 저장한다 (create-only, 한 파일 원자 기록).
 
-    저장 정책은 data-model 8장 #16 미결이라 최소 안전 방식: 전부 검증 후에만 쓰고,
+    저장 정책은 data-model 8장 #16에서 확정 (immutable snapshot, create-only): 전부 검증 후에만 쓰고,
     tmp 작성 → os.link(대상이 있으면 FileExistsError)로 덮어쓰기를 막는다. 부분 저장 없음.
     """
     for r in results:

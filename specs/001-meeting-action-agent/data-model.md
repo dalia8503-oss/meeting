@@ -250,4 +250,4 @@ SPEC에 필드 수준 정의가 없어 이 문서와 `contracts/`에서 임시�
 | 13 | 큐에서 사람 수정 시 최초 생성 주체 | Agent 유지. **결정됨 → SPEC 5.2 반영**. 큐 처리 후 상태·폐기 이력은 CHK015로 여전히 미결 | 2026-11-11 정책 결정 |
 | 14 | 완료 Action에 재판정 기록 시도 | **결정됨**: 완료 Action은 이행점검·재판정 대상에서 제외하므로 `record_reassessment`는 거부(`TransitionError`) | 2026-11-11 정책 결정 |
 | 15 | 재판정·철회 입력 누락(근거·사유·철회자 이름 없음)의 오류 종류 | 미정 (스키마는 거부, 예외 타입은 구현에서 정함) | T-03-3 착수 전 확인 |
-| 16 | FollowupResult의 `confidence`·`proposed_status` 보존 방식 | 미정 (재판정 history에는 `evidence`·`note`만 남음) | T-08/T-09 단계에서 결정 |
+| 16 | FollowupResult의 `confidence`·`proposed_status` 보존 방식 | **결정됨 (2026-11-12)**: FollowupResult는 회의별 immutable snapshot. `meetings/<meeting_id>.followups.json`에 **create-only**(덮어쓰기 금지, temp 작성 → atomic publish, 기존 파일이면 `FileExistsError`)로 저장한다. 재분석이 필요해지면 overwrite가 아니라 별도 version/reanalysis 정책으로 설계한다(현재 versioning 없음). history의 `note`에는 제안 상태·확신도·사유를 요약해 남긴다 | `manager/followup.py save_followups`, `manager/followup_apply.py` |
