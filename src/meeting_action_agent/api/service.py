@@ -56,12 +56,19 @@ class ApiError(Exception):
         self.status, self.code, self.message = status, code, message
 
 
+def _gemini_key_ok() -> bool:
+    """키가 설정돼 있고 형식이 정상(한 줄, 공백·'=' 없음)일 때만 True. 키 값은 반환하지 않는다.
+    .env 내용을 통째로 붙여 넣은 값(여러 줄, 'GEMINI_API_KEY=…')은 요청 헤더가 깨져 호출이 실패하므로 미설정으로 본다."""
+    key = os.environ.get("GEMINI_API_KEY") or ""
+    return bool(key) and key == key.strip() and not re.search(r"[\s=]", key)
+
+
 def get_health() -> HealthResponse:
     # 키 값은 반환하지 않고 설정 여부(boolean)만 낸다.
     return HealthResponse(
         status="ok",
         mode=get_mode(),
-        gemini_configured=bool(os.environ.get("GEMINI_API_KEY")),
+        gemini_configured=_gemini_key_ok(),
     )
 
 
@@ -278,7 +285,7 @@ def _run_path(root: Path, mid: str) -> Path:
 
 
 def _live_dependencies():
-    if not os.environ.get("GEMINI_API_KEY"):
+    if not _gemini_key_ok():
         raise ApiError(503, "gemini_not_configured", "LIVE 모드에 필요한 Gemini API 키가 서버에 설정되어 있지 않습니다.")
     from ..audio_pipeline import _gemini_json_runner
     from ..llm import gemini_runner
@@ -687,7 +694,7 @@ def _speaker_runner():
     if get_mode() == "demo":
         from .demo import demo_speaker_runner
         return demo_speaker_runner
-    if not os.environ.get("GEMINI_API_KEY"):
+    if not _gemini_key_ok():
         raise ApiError(503, "gemini_not_configured", "LIVE 모드에 필요한 Gemini API 키가 서버에 설정되어 있지 않습니다.")
     from ..audio_pipeline import _gemini_json_runner
     return _gemini_json_runner

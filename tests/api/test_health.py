@@ -49,3 +49,13 @@ def test_cors_allows_only_vite_dev_origin():
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
     bad = c.get("/api/health", headers={"Origin": "http://evil.example"})
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_health_reports_malformed_gemini_key_as_not_configured(monkeypatch):
+    # .env 내용을 통째로 붙여 넣은 값(가짜): 한 줄 키만 정상으로 본다
+    monkeypatch.setenv("GEMINI_API_KEY", "GEMINI_API_KEY=fake-key-123\nGEMINI_MODEL=m")
+    assert _client().get("/api/health").json()["gemini_configured"] is False
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key-123")
+    assert _client().get("/api/health").json()["gemini_configured"] is True
+    monkeypatch.delenv("GEMINI_API_KEY")
+    assert _client().get("/api/health").json()["gemini_configured"] is False
