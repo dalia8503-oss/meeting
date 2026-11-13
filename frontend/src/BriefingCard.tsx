@@ -23,6 +23,7 @@ export default function BriefingCard({ previousMeetingId, currentDate }: Props) 
   const [playing, setPlaying] = useState(false)
   const [playError, setPlayError] = useState(false)
   const [played, setPlayed] = useState(false)
+  const [downloadError, setDownloadError] = useState(false)
   const audio = useRef<HTMLAudioElement>(null)
   const alive = useRef(true)
 
@@ -53,6 +54,29 @@ export default function BriefingCard({ previousMeetingId, currentDate }: Props) 
       setPlaying(false)
       setPlayError(true)
     })
+  }
+
+  /**
+   * 이미 저장된 WAV를 GET으로 내려받기만 한다 (POST/LLM/TTS 재호출 없음).
+   * backend(8000)와 frontend(5173)가 다른 origin이라 <a download>만으로는 파일명이 무시되므로,
+   * blob으로 받아 current_date 기반 파일명으로 저장한다. 실패해도 브리핑 텍스트 상태는 그대로다.
+   */
+  const download = async (b: Briefing) => {
+    setDownloadError(false)
+    try {
+      const res = await fetch(briefingAudioUrl(b.audio))
+      if (!res.ok) throw new Error(String(res.status))
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `meeting-briefing-${b.current_date}.wav`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch {
+      if (alive.current) setDownloadError(true)
+    }
   }
 
   const stop = () => {
@@ -106,8 +130,10 @@ export default function BriefingCard({ previousMeetingId, currentDate }: Props) 
             ) : (
               <button type="button" className="btn-secondary" onClick={play}>{played ? '▶ 다시 듣기' : '▶ 듣기'}</button>
             )}
+            <button type="button" className="btn-secondary" onClick={() => download(state.briefing)}>⬇ 음성파일 다운로드</button>
             <span className="muted small">약 {Math.round(state.briefing.audio.duration_sec)}초</span>
           </div>
+          {downloadError && <p className="error small" role="alert">음성 파일을 내려받지 못했습니다. 위 텍스트로 확인해 주세요.</p>}
           {playError && <p className="error small" role="alert">음성을 재생하지 못했습니다. 위 텍스트로 확인해 주세요.</p>}
         </>
       )}
