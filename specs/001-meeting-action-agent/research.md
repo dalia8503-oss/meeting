@@ -44,7 +44,7 @@
 
 ## R-02. 화자 구분 방식
 
-**요구**: 발언마다 화자 라벨, `speaker_map`으로 실명 매핑 (SPEC 5.1). 화자 구분은 Whisper와 별도로 처리한다 (0.CLAUDE.md).
+**요구**: 발언마다 화자 라벨, `speaker_map`으로 실명 매핑 (SPEC 5.1). 화자 구분은 Whisper와 별도로 처리한다 (CLAUDE.md).
 
 | 후보 | 비고 | 검증 필요 |
 |---|---|---|
@@ -84,11 +84,11 @@
 
 ## R-05. Agent(LLM) 호출 방식
 
-**배경**: 0.CLAUDE.md는 `.claude/agents/`(meeting-analyst, action-manager, reviewer)와 `.claude/skills/`(analyze-meeting, check-actions)를 정의한다. 한편 Dashboard는 React + FastAPI 웹 앱이며 시연은 "업로드 → … → 승인"을 이어서 보여야 하고, 정확도 테스트는 pytest에서 자동 실행되어야 한다.
+**배경**: CLAUDE.md는 `.claude/agents/`(meeting-analyst, action-manager, reviewer)와 `.claude/skills/`(analyze-meeting, check-actions)를 정의한다. 한편 Dashboard는 React + FastAPI 웹 앱이며 시연은 "업로드 → … → 승인"을 이어서 보여야 하고, 정확도 테스트는 pytest에서 자동 실행되어야 한다.
 
 | 방식 | 장점 | 우려 |
 |---|---|---|
-| A. Claude Code 안에서만 실행 (skill → subagent) | 0.CLAUDE.md 구조 그대로, 도구 권한으로 Reviewer 읽기 전용 강제 | FastAPI·pytest에서 호출하기 어려움 |
+| A. Claude Code 안에서만 실행 (skill → subagent) | CLAUDE.md 구조 그대로, 도구 권한으로 Reviewer 읽기 전용 강제 | FastAPI·pytest에서 호출하기 어려움 |
 | B. Python에서 Anthropic API 직접 호출 | 앱·테스트에서 자동화 쉬움, 구조화 출력 사용 가능 | Reviewer 읽기 전용을 도구 권한이 아니라 코드 설계로 보장해야 함, `.claude/agents` 정의와 중복 |
 | C. Python에서 Claude Code 헤드리스 실행 (`claude -p` 등) 또는 Agent SDK | `.claude/agents` 정의를 재사용하면서 프로그램에서 호출 | 실행 환경·지연·비용 구조 확인 필요 |
 
@@ -144,7 +144,7 @@ R-01~R-03의 선택에는 정답을 아는 한국어 회의 음성이 필요하�
 
 - **직접 녹음**: 가상 대본(정답표와 함께 작성)을 여러 사람이 읽는다. 화자 구분 평가에 가장 적합하다.
 - **TTS 합성**: 화자별 다른 목소리로 합성한다. 빠르지만 실제 회의의 겹침·잡음·말 끊김과 다르다. 화자 구분 평가에는 낙관적인 결과가 나온다.
-- 어느 쪽이든 실제 회사 회의는 쓰지 않는다 (0.CLAUDE.md).
+- 어느 쪽이든 실제 회사 회의는 쓰지 않는다 (CLAUDE.md).
 - 정답표(`T-00-6`)에 발언별 정답 텍스트와 화자를 함께 기록해야 STT·화자 구분의 오류율을 계산할 수 있다.
 - 권장: 대본 작성(T-00-5) 때 STT용 정답 텍스트를 같이 확정하고, 짧은 구간은 직접 녹음, 나머지는 TTS로 보완한다.
 

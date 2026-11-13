@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://meeting-action-agent.example/contracts/utterance.schema.json",
   "title": "Utterance (녹취 발언)",
-  "description": "A↔B 인터페이스. 기준: SPEC.md 5.1, 0.CLAUDE.md 데이터 인터페이스. 필드를 바꾸려면 SPEC.md를 먼저 수정한다.",
+  "description": "A↔B 인터페이스. 기준: SPEC.md 5.1, CLAUDE.md 데이터 인터페이스. 필드를 바꾸려면 SPEC.md를 먼저 수정한다.",
   "type": "object",
   "additionalProperties": false,
   "required": ["meeting_id", "speaker", "timestamp", "text"],

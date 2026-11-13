@@ -1,6 +1,6 @@
 # Implementation Plan — Meeting Action Agent
 
-> 기준 문서: `SPEC.md`(요구사항·수용기준), `../../0.CLAUDE.md`(절대 원칙), `tasks.md`(작업 목록).
+> 기준 문서: `SPEC.md`(요구사항·수용기준), `../../CLAUDE.md`(절대 원칙), `tasks.md`(작업 목록).
 > 이 문서는 **어떻게 만들 것인가**만 다룬다. 요구사항을 바꾸려면 SPEC.md를 먼저 수정한다.
 > 작성일: 2026-11-11 / 상태: 초안 (검토 대기)
 
@@ -18,7 +18,7 @@ LLM(Agent)은 추출·판단을 맡고, 근거 존재 검증·상태 전이·완
 | 언어 / 테스트 | Python, pytest | 확정 (SPEC 12장) |
 | STT | MVP: Gemini Audio / 후속: Whisper 계열(로컬) | MVP 결정(T-00-1). 로컬 Whisper는 보안 검토 단계 대안 |
 | 화자 구분 | MVP: Gemini `speaker_N` 라벨, 실명은 `speaker_map`으로만 | MVP 결정. 정식 방식은 **미결** (SPEC 17장) |
-| Agent 실행 | Claude Code 서브에이전트(`.claude/agents/`) + Skill(`.claude/skills/`) | 확정 (0.CLAUDE.md) |
+| Agent 실행 | Claude Code 서브에이전트(`.claude/agents/`) + Skill(`.claude/skills/`) | 확정 (CLAUDE.md) |
 | 저장 | JSON 파일이 정본(`actions/`, `meetings/`), Markdown은 파생물 | 잠정 확정 |
 | Dashboard | React 18 + TypeScript + Vite / FastAPI | 확정(Streamlit 대체). API: `/api/health`, `/api/meetings`, `/api/meetings/{id}/analyze`, `/api/meetings/{id}`, `/api/meetings/{id}/actions`, `/api/actions/{id}/review`, `/api/meetings/{id}/speaker-map` |
 | 입력 사양 | MP3/WAV/M4A, 한국어, 최대 2시간 | 잠정 확정 |
@@ -30,7 +30,7 @@ LLM(Agent)은 추출·판단을 맡고, 근거 존재 검증·상태 전이·완
 - 테스트 데이터는 가상 회의만 사용한다.
 - MVP 제외 항목(메일/Teams 알림, 캘린더, 권한관리, 신규 Action 사전 승인, 직접 완료 처리)은 핵심 기능 완성 전에 착수하지 않는다.
 
-## 3. 절대 원칙 점검 (0.CLAUDE.md → 구현 수단)
+## 3. 절대 원칙 점검 (CLAUDE.md → 구현 수단)
 
 | 원칙 | 강제 수단 | 담당 task |
 |---|---|---|
@@ -79,7 +79,7 @@ audio → (STT+화자구분) → transcripts/original/*.json   (신규 생성만
 
 ### 4.3 모듈 구성 (제안)
 
-> 0.CLAUDE.md의 프로젝트 구조에는 소스 디렉터리가 없다. 아래 `src/` 패키지는 **이 계획의 제안**이며, 승인되면 0.CLAUDE.md 구조도에 추가한다.
+> CLAUDE.md의 프로젝트 구조에는 소스 디렉터리가 없다. 아래 `src/` 패키지는 **이 계획의 제안**이며, 승인되면 CLAUDE.md 구조도에 추가한다.
 
 ```text
 src/meeting_action_agent/
@@ -171,7 +171,7 @@ SPEC 17장 "미결" 4건 외에 이 계획에서 새로 생긴 항목이다. 결
 | 2 | STT 모델·버전, `low_confidence` 판정 기준 | SPEC 미결. P7 착수 전까지 |
 | 3 | 확신도 수치 임계값 | SPEC 미결. P5 이후 튜닝 |
 | 4 | 취소/철회 전용 상태 신설 여부 | SPEC 미결. MVP는 `확인 필요`로 처리 |
-| 5 | 소스 디렉터리 `src/meeting_action_agent/` 도입 | **신규.** 0.CLAUDE.md 프로젝트 구조 갱신 필요 |
+| 5 | 소스 디렉터리 `src/meeting_action_agent/` 도입 | **신규.** CLAUDE.md 프로젝트 구조 갱신 필요 |
 | 6 | Agent(LLM) 호출 방식: Claude Code 서브에이전트를 파이프라인에서 어떻게 호출하는지, Python 코드에서 API를 직접 호출하는지 | **신규.** 테스트 자동화와 직결 |
 | 7 | 회의 시리즈 간 Action List 지정 방식(UI 선택 vs 파일 경로) | **신규.** SPEC은 "사용자 명시"까지만 정의 |
 

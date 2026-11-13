@@ -65,7 +65,7 @@ python specs\001-meeting-action-agent\contracts\validate_examples.py
 
 ## 5. 프로젝트 폴더 준비 [예정, T-00-2 ~ T-00-4]
 
-0.CLAUDE.md의 프로젝트 구조대로 아래 폴더를 만든다. 이 폴더들은 아직 없다.
+CLAUDE.md의 프로젝트 구조대로 아래 폴더를 만든다. 이 폴더들은 아직 없다.
 
 ```text
 audio/                 # 원본 녹음 (신규 생성만, 수정·삭제 차단)

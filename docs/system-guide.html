@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Action Agent 쉽게 이해하기</title>
+<style>
+:root{
+  --bg:#f4f6fb; --surface:#ffffff; --text:#1c2333; --muted:#5c667a; --line:#dfe4ef;
+  --primary:#1f4fd8; --primary-soft:#e8eefc; --ok:#15803d; --ok-soft:#dcf5e3;
+  --warn:#9a4d00; --warn-soft:#ffedd6; --bad:#b42318; --bad-soft:#fde0e0; --na:#475569; --na-soft:#e7ebf3;
+  --shadow:0 6px 24px rgba(31,79,216,.10);
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#0f1420; --surface:#171e2e; --text:#e8ecf5; --muted:#9aa6bd; --line:#2a3550;
+    --primary:#7da2ff; --primary-soft:#1d2a4d; --ok:#6ee7a0; --ok-soft:#12331f; --warn:#ffc27a; --warn-soft:#3a2a12;
+    --bad:#ff9b8f; --bad-soft:#40201d; --na:#b6c2d9; --na-soft:#232d44; --shadow:0 6px 24px rgba(0,0,0,.35); }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.7 "Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif}
+a{color:var(--primary)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:16px;height:52px}
+header.top b{font-size:15px;letter-spacing:.02em}
+nav.menu{display:flex;gap:4px;overflow-x:auto;margin-left:auto}
+nav.menu a{padding:6px 10px;border-radius:999px;font-size:13px;text-decoration:none;color:var(--muted);white-space:nowrap}
+nav.menu a:hover,nav.menu a.on{background:var(--primary-soft);color:var(--primary)}
+#bar{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:var(--primary)}
+
+.hero{padding:56px 0 32px}
+.hero h1{font-size:clamp(28px,5vw,44px);line-height:1.25;margin:0 0 12px}
+.hero p.lead{font-size:18px;color:var(--muted);max-width:760px;margin:0 0 8px}
+.legend{display:inline-flex;gap:8px;align-items:center;background:var(--primary-soft);color:var(--primary);padding:6px 12px;border-radius:999px;font-size:14px;margin-top:12px}
+
+section.block{padding:40px 0;border-top:1px solid var(--line)}
+section.block>.wrap>h2{font-size:28px;margin:0 0 6px}
+section.block>.wrap>p.sub{color:var(--muted);margin:0 0 24px}
+
+/* 용어 */
+.term{all:unset;cursor:pointer;color:var(--primary);border-bottom:2px dotted var(--primary);font-weight:600}
+.term:focus-visible{outline:3px solid var(--primary);outline-offset:2px;border-radius:3px}
+.term sup,.star{color:#e11d48;font-weight:800}
+#tip{position:fixed;z-index:50;max-width:340px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;display:none}
+#tip.show{display:block;animation:pop .18s ease-out}
+#tip h4{margin:0 0 4px;font-size:16px}
+#tip .easy{margin:0 0 8px;font-weight:600}
+#tip .lab{display:inline-block;font-size:11px;font-weight:800;background:var(--primary-soft);color:var(--primary);border-radius:6px;padding:1px 7px;margin-bottom:4px}
+#tip p{margin:0}
+@keyframes pop{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
+
+/* 흐름 애니메이션 */
+.flow{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch;margin-top:24px}
+.node{flex:1 1 130px;background:var(--surface);border:2px solid var(--line);border-radius:16px;padding:14px 12px;text-align:center;position:relative;animation:glow 14s infinite}
+.node .ic{font-size:28px;display:block}
+.node b{display:block;font-size:15px}
+.node small{color:var(--muted);font-size:12.5px;line-height:1.4;display:block}
+.node:not(:last-child)::after{content:"→";position:absolute;right:-14px;top:42%;font-size:18px;color:var(--primary);z-index:2}
+@keyframes glow{0%,12%{border-color:var(--primary);box-shadow:0 0 0 5px var(--primary-soft);transform:translateY(-4px)}16%,100%{border-color:var(--line);box-shadow:none;transform:none}}
+.flow .node:nth-child(1){animation-delay:0s}.flow .node:nth-child(2){animation-delay:2s}.flow .node:nth-child(3){animation-delay:4s}
+.flow .node:nth-child(4){animation-delay:6s}.flow .node:nth-child(5){animation-delay:8s}.flow .node:nth-child(6){animation-delay:10s}.flow .node:nth-child(7){animation-delay:12s}
+@media(max-width:700px){.node:not(:last-child)::after{content:"↓";right:auto;left:50%;top:auto;bottom:-16px}}
+
+/* 타임라인 */
+.ctrl{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+button.btn{cursor:pointer;border:1px solid var(--primary);background:var(--primary);color:#fff;border-radius:10px;padding:8px 16px;font:inherit;font-weight:700}
+button.btn.ghost{background:transparent;color:var(--primary)}
+.tl{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:20px;align-items:start}
+.steps{list-style:none;margin:0;padding:0;position:relative}
+.steps::before{content:"";position:absolute;left:19px;top:8px;bottom:8px;width:3px;background:var(--line)}
+.steps li{position:relative}
+.steps button{all:unset;box-sizing:border-box;width:100%;cursor:pointer;display:flex;gap:12px;align-items:center;padding:7px 8px 7px 0;border-radius:12px}
+.steps button:focus-visible{outline:3px solid var(--primary)}
+.steps .dot{flex:none;width:40px;height:40px;border-radius:50%;background:var(--surface);border:3px solid var(--line);display:grid;place-items:center;font-weight:800;font-size:14px;z-index:1;transition:.25s}
+.steps .nm{font-size:14.5px;font-weight:600;line-height:1.35}
+.steps li.done .dot{background:var(--primary-soft);border-color:var(--primary);color:var(--primary)}
+.steps li.on .dot{background:var(--primary);border-color:var(--primary);color:#fff;transform:scale(1.12);box-shadow:0 0 0 6px var(--primary-soft)}
+.steps li.on .nm{color:var(--primary)}
+.detail{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow);position:sticky;top:70px;min-height:300px}
+.detail.swap{animation:slide .35s ease-out}
+@keyframes slide{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+.detail h3{margin:0 0 4px;font-size:22px}
+.chip{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px;background:var(--primary-soft);color:var(--primary);margin:0 6px 6px 0}
+.detail .box{background:var(--bg);border-left:4px solid var(--primary);border-radius:8px;padding:10px 14px;margin:12px 0}
+.detail .box b.lab{display:block;font-size:12px;color:var(--primary);margin-bottom:2px}
+.detail ul{margin:8px 0 0;padding-left:20px}
+@media(max-width:820px){.tl{grid-template-columns:1fr}.detail{position:static}}
+
+/* 꼭 들어가야 하는 것 */
+.sum{display:flex;gap:18px;flex-wrap:wrap;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px 22px;margin-bottom:20px}
+.ring{--p:0;width:96px;height:96px;border-radius:50%;background:conic-gradient(var(--ok) calc(var(--p)*1%),var(--line) 0);display:grid;place-items:center;transition:--p 1s}
+.ring span{width:74px;height:74px;border-radius:50%;background:var(--surface);display:grid;place-items:center;font-weight:800;font-size:20px}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{font-size:13px;font-weight:800;border-radius:999px;padding:3px 12px}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}.pill.part{background:var(--warn-soft);color:var(--warn)}.pill.na{background:var(--na-soft);color:var(--na)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:8px;transition:.2s}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.card h3{margin:0;font-size:19px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.badge{font-size:12px;font-weight:800;border-radius:999px;padding:2px 10px;white-space:nowrap}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}.badge.part{background:var(--warn-soft);color:var(--warn)}.badge.na{background:var(--na-soft);color:var(--na)}
+.card .std{font-size:14px;color:var(--muted);margin:0}
+.card .std b,.card .now b{color:var(--text)}
+.card .now{margin:0;font-size:14.5px}
+.card details{border-top:1px dashed var(--line);padding-top:8px;font-size:14px}
+.card summary{cursor:pointer;font-weight:700;color:var(--primary)}
+.card code{background:var(--bg);padding:1px 6px;border-radius:6px;font-size:12.5px}
+.todo{background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 12px;font-size:14px;margin:4px 0 0}
+
+/* 사용 흐름 */
+.usage{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;counter-reset:u}
+.use{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;position:relative;opacity:0;transform:translateY(14px);transition:.5s}
+.use.in{opacity:1;transform:none}
+.use::before{counter-increment:u;content:counter(u);position:absolute;top:-12px;left:14px;background:var(--primary);color:#fff;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:14px}
+.use b{display:block;margin:6px 0 2px}
+.use p{margin:0;font-size:14px;color:var(--muted)}
+
+/* 실행 */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.tabs button{all:unset;cursor:pointer;padding:8px 16px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-weight:700;font-size:14px}
+.tabs button[aria-selected=true]{background:var(--primary);color:#fff;border-color:var(--primary)}
+.tabs button:focus-visible{outline:3px solid var(--primary)}
+.pane{display:none}.pane.on{display:block;animation:slide .3s ease-out}
+pre{background:#0f172a;color:#e2e8f0;border-radius:12px;padding:14px 16px;overflow:auto;font:13.5px/1.6 Consolas,"D2Coding",monospace;position:relative;margin:8px 0}
+pre button{position:absolute;top:8px;right:8px;cursor:pointer;border:0;border-radius:8px;background:#334155;color:#fff;padding:4px 10px;font-size:12px}
+.note{background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:14.5px}
+.tip{background:var(--primary-soft);color:var(--primary);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:14.5px}
+
+/* 안전 원칙 */
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.rule{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;gap:12px}
+.rule .lock{font-size:26px;animation:bob 3s ease-in-out infinite}
+.rule:nth-child(2n) .lock{animation-delay:.6s}.rule:nth-child(3n) .lock{animation-delay:1.2s}
+@keyframes bob{50%{transform:translateY(-4px) rotate(-6deg)}}
+.rule p{margin:0;font-size:14.5px}.rule b{display:block}
+
+/* 사전 */
+.gl{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.gl details{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.gl summary{cursor:pointer;font-weight:800}
+.gl summary .star{margin-left:2px}
+.gl .easy{display:block;font-weight:600;margin:6px 0 4px}
+.gl p{margin:0;color:var(--muted);font-size:14.5px}
+.gl .lab{font-size:11px;font-weight:800;background:var(--primary-soft);color:var(--primary);border-radius:6px;padding:1px 7px}
+input#q{width:100%;max-width:360px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text);font:inherit;margin-bottom:14px}
+
+footer{padding:36px 0 60px;color:var(--muted);font-size:14px;border-top:1px solid var(--line)}
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .6s,transform .6s}
+.reveal.in{opacity:1;transform:none}
+@media print{.reveal,.use{opacity:1!important;transform:none!important}#tip{display:none!important}header.top{position:static}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.reveal,.use{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <b>🎙 Meeting Action Agent</b>
+    <nav class="menu" id="menu">
+      <a href="#what">무엇인가</a><a href="#order">만든 순서</a><a href="#must">꼭 들어가야 하는 것</a>
+      <a href="#usage">사용 흐름</a><a href="#run">실행 방법</a><a href="#safe">안전 원칙</a><a href="#gloss">용어 사전</a>
+    </nav>
+  </div>
+  <div id="bar"></div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap">
+    <h1>회의에서 정한 일을<br>끝날 때까지 따라가 주는 AI</h1>
+    <p class="lead">회의 녹음을 올리면 <button class="term" data-t="stt">STT<sup>*</sup></button>로 글자로 바꾸고, <button class="term" data-t="agent">에이전트<sup>*</sup></button>들이 "누가 · 언제까지 · 무엇을" 할지 뽑아냅니다. 다음 회의에서는 그 일이 했는지 확인합니다.</p>
+    <p class="lead">이 페이지는 <b>어떤 순서로 만들었는지</b>, <b>꼭 들어가야 하는 7가지가 지금 어떤 상태인지</b>, <b>어떻게 실행하는지</b>를 차례로 보여줍니다.</p>
+    <span class="legend"><span class="star">*</span> 표시가 붙은 용어를 누르면 <b>세부설명</b>이 나옵니다</span>
+
+    <div class="flow" id="what" aria-label="전체 흐름">
+      <div class="node"><span class="ic">🎙</span><b>회의 녹음</b><small>mp3 · wav · m4a</small></div>
+      <div class="node"><span class="ic">📝</span><b>녹취록</b><small><button class="term" data-t="stt">STT<sup>*</sup></button>+ 화자 확인</small></div>
+      <div class="node"><span class="ic">🧠</span><b>분석</b><small><button class="term" data-t="agent">에이전트<sup>*</sup></button>가 지시 추출</small></div>
+      <div class="node"><span class="ic">🛡</span><b>검증</b><small><button class="term" data-t="reviewer">Reviewer<sup>*</sup></button>가 근거 확인</small></div>
+      <div class="node"><span class="ic">📋</span><b>Action 목록</b><small><button class="term" data-t="action">Action<sup>*</sup></button>(할 일)</small></div>
+      <div class="node"><span class="ic">🔁</span><b>다음 회의 점검</b><small>했는지 확인</small></div>
+      <div class="node"><span class="ic">🙋</span><b>사람이 승인</b><small><button class="term" data-t="cand">완료 후보<sup>*</sup></button>→ 완료</small></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="order">
+  <div class="wrap">
+    <h2>① 어떤 순서로 만들었나</h2>
+    <p class="sub">원칙은 <b>규칙 → 무엇을 → 어떻게 나눠서 → 코드</b> 순서입니다. 코드를 먼저 짜지 않고 <button class="term" data-t="sdd">명세 기반 개발<sup>*</sup></button>로 진행했습니다. 단계를 눌러 보세요.</p>
+    <div class="ctrl">
+      <button class="btn" id="play">▶ 순서대로 자동 재생</button>
+      <button class="btn ghost" id="prev">← 이전</button>
+      <button class="btn ghost" id="next">다음 →</button>
+    </div>
+    <div class="tl">
+      <ol class="steps" id="steps"></ol>
+      <article class="detail" id="detail" aria-live="polite"></article>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="must">
+  <div class="wrap">
+    <h2>② 꼭 들어가야 하는 것 7가지</h2>
+    <p class="sub">과제 기준표의 7개 항목을 이 프로젝트에 하나씩 대보았습니다. <b>잘 된 것과 아직 부족한 것을 그대로</b> 적었습니다. 카드를 눌러 자세히 보세요.</p>
+    <div class="sum reveal">
+      <div class="ring" id="ring"><span id="ringTxt">0/7</span></div>
+      <div>
+        <b style="font-size:18px">현재 충족 현황</b>
+        <div class="pills" style="margin-top:8px">
+          <span class="pill ok">충족 3</span><span class="pill part">부분 충족 3</span><span class="pill na">해당 확인 필요 1</span>
+        </div>
+        <p style="margin:8px 0 0;color:var(--muted);font-size:14px">확인 기준일: 2026-11-13 · 자동 테스트 1005개 통과 확인</p>
+      </div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </div>
+</section>
+
+<section class="block" id="usage">
+  <div class="wrap">
+    <h2>③ 사용하는 흐름</h2>
+    <p class="sub">화면에서는 아래 순서로 진행합니다. AI의 추천은 <b>사람이 확인해야만</b> 확정됩니다.</p>
+    <div class="usage" id="usageGrid"></div>
+  </div>
+</section>
+
+<section class="block" id="run">
+  <div class="wrap">
+    <h2>④ 실행 방법</h2>
+    <p class="sub">내 PC에서 돌려 보는 방법입니다. 명령은 <button class="term" data-t="shell">터미널<sup>*</sup></button>(PowerShell)에 붙여 넣습니다.</p>
+    <div class="tabs" role="tablist" id="runTabs">
+      <button role="tab" aria-selected="true" data-p="p1">내 PC에서 실행</button>
+      <button role="tab" aria-selected="false" data-p="p2">테스트 실행</button>
+      <button role="tab" aria-selected="false" data-p="p3">인터넷에 배포</button>
+    </div>
+
+    <div class="pane on" id="p1">
+      <p><b>0. 준비물</b>: Python, Node.js, 그리고 Gemini 키(<button class="term" data-t="env">환경 변수<sup>*</sup></button>로 저장).</p>
+      <p><b>1. 비밀 키 설정</b> — 프로젝트 폴더의 <code>.env</code> 파일에 <b>한 줄</b>로 적습니다.</p>
+      <pre><button>복사</button>GEMINI_API_KEY=여기에_키만_붙여넣기</pre>
+      <div class="note">⚠ 키 값에는 <b>키 문자열만</b> 넣습니다. <code>.env</code> 내용을 통째로(두 줄) 붙여 넣으면 요청이 깨집니다. 키가 화면·로그·채팅에 보였다면 폐기하고 새로 발급하세요.</div>
+      <p><b>2. 백엔드<sup class="star">*</sup> 실행</b> (<button class="term" data-t="back">설명<sup>*</sup></button>) — 데이터를 처리하는 서버</p>
+      <pre><button>복사</button>pip install -r requirements.txt
+$env:PYTHONPATH="src"
+$env:MAA_MODE="demo"     # demo: 외부 AI 호출 없음 / live: 실제 Gemini 사용
+uvicorn meeting_action_agent.api.app:create_app_from_env --factory --port 8000</pre>
+      <p><b>3. 프런트엔드<sup class="star">*</sup> 실행</b> (<button class="term" data-t="front">설명<sup>*</sup></button>) — 눈에 보이는 화면</p>
+      <pre><button>복사</button>cd frontend
+npm install
+npm run dev</pre>
+      <p>브라우저에서 <code>http://localhost:5173</code>을 엽니다. 오른쪽 위에 <b>DEMO</b> 또는 <b>LIVE</b> 배지가 보이면 서버와 연결된 것입니다.</p>
+      <div class="tip">💡 다른 PC에서 접속하려면 서버를 <code>--host 0.0.0.0</code>으로 열고, 허용할 주소를 <code>MAA_CORS_ORIGINS</code>(<button class="term" data-t="cors">CORS<sup>*</sup></button>)에 적습니다. 같은 네트워크에서만 쓰세요.</div>
+    </div>
+
+    <div class="pane" id="p2">
+      <p>구현보다 <b>테스트를 먼저</b> 만든 프로젝트입니다. 지금은 외부 AI를 부르지 않는 자동 테스트가 <b>1005개</b> 있고 모두 통과합니다.</p>
+      <pre><button>복사</button>python -m pytest -q                    # 백엔드 자동 테스트
+cd frontend
+npm run build                          # 화면 코드 오류 검사 + 빌드
+npm run lint                           # 코드 스타일 검사</pre>
+      <div class="note">화면(UI)의 버튼 동작은 아직 자동 테스트가 없어서, 직접 눌러 확인해야 합니다.</div>
+    </div>
+
+    <div class="pane" id="p3">
+      <p><button class="term" data-t="deploy">배포<sup>*</sup></button>는 화면과 서버를 <b>따로</b> 올립니다. 서버는 파일 저장과 긴 처리가 필요해서 상시 실행 서버가 맞습니다.</p>
+      <ol>
+        <li><b>GitHub에 코드 올리기</b> (<code>git push</code>)</li>
+        <li><b>백엔드 → Render</b>: 저장소 연결 → <code>render.yaml</code> 자동 적용 → 환경 변수 <code>GEMINI_API_KEY</code> 입력</li>
+        <li><b>프런트 → Vercel</b>: 저장소 연결 → Root Directory <code>frontend</code> → 환경 변수 <code>VITE_API_BASE</code>에 서버 주소 입력</li>
+        <li><b>둘을 연결</b>: Render의 <code>MAA_CORS_ORIGINS</code>에 Vercel 주소 입력 후 재배포</li>
+      </ol>
+      <div class="note">무료 플랜은 서버가 재시작되면 저장된 회의가 사라지고, 15분 쉬면 잠들어 첫 접속이 느립니다. 인증이 없으므로 가상 데이터로만 시연하세요.</div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="safe">
+  <div class="wrap">
+    <h2>⑤ 절대 지키는 안전 원칙</h2>
+    <p class="sub">AI가 틀려도 사고가 나지 않도록, 애매하면 막는 방식(<button class="term" data-t="fc">fail-closed<sup>*</sup></button>)으로 만들었습니다.</p>
+    <div class="rules">
+      <div class="rule"><span class="lock">🔒</span><p><b>없는 말은 만들지 않기</b>녹취에 없는 발언·담당자·기한·결정을 지어내지 않습니다.</p></div>
+      <div class="rule"><span class="lock">🔒</span><p><b>추정하지 않기</b>담당자나 기한이 불명확하면 "확인 필요"로 표시합니다.</p></div>
+      <div class="rule"><span class="lock">🔒</span><p><b>근거 남기기</b>모든 Action에 원문 발언과 시각(HH:MM:SS)을 붙입니다.</p></div>
+      <div class="rule"><span class="lock">🔒</span><p><b>완료는 사람만</b>AI는 <button class="term" data-t="cand">완료 후보<sup>*</sup></button>까지만 제안하고, 사람이 승인해야 "완료"가 됩니다.</p></div>
+      <div class="rule"><span class="lock">🔒</span><p><b>원본 보존</b>원본 녹음과 <button class="term" data-t="transcript">녹취록<sup>*</sup></button>은 수정하지 않습니다.</p></div>
+      <div class="rule"><span class="lock">🔒</span><p><b>AI 추천 ≠ 확정</b>화자 이름 추천은 사람이 확인해야 확정됩니다. 바뀌면 <button class="term" data-t="stale">재분석<sup>*</sup></button>이 필요합니다.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="gloss">
+  <div class="wrap">
+    <h2>⑥ 용어 사전</h2>
+    <p class="sub"><span class="star">*</span> 용어를 모아 두었습니다. 누르면 <b>세부설명</b>이 펼쳐집니다.</p>
+    <input id="q" type="search" placeholder="용어 검색 (예: 훅, STT)" aria-label="용어 검색">
+    <div class="ctrl"><button class="btn ghost" id="openAll">세부설명 모두 펼치기</button><button class="btn ghost" id="closeAll">모두 접기</button></div>
+    <div class="gl" id="glGrid"></div>
+  </div>
+</section>
+</main>
+
+<footer><div class="wrap">Meeting Action Agent 학습용 설명서 · 2026-11-13 기준 · 가상(합성) 데이터로만 시연합니다.</div></footer>
+<div id="tip" role="dialog" aria-live="polite"></div>
+
+<script>
+/* ---------------- 용어 (쉬운설명 + 세부설명) ---------------- */
+const G = {
+  stt:["STT","음성을 글자로 바꾸는 기술 (Speech To Text)","녹음을 AI(Gemini)에 보내면 '몇 시에, 누가, 무슨 말을 했는지'를 적은 글이 돌아옵니다. 완벽하지 않아서 'B구역'을 '비구역'으로 적는 식의 오류가 생길 수 있어, 원문 근거와 사람 확인을 함께 씁니다."],
+  diar:["화자 분리","목소리를 구분해 'speaker_1, speaker_2' 같은 이름표를 붙이는 것","같은 사람을 둘로 나누거나 다른 두 사람을 하나로 합치는 실수가 있습니다. 그래서 이름표가 누구인지는 사람이 확인합니다. AI는 이름을 추천만 합니다."],
+  transcript:["녹취록(Transcript)","녹음을 글자로 옮긴 원본 기록","시각·화자 이름표·발언 내용이 줄마다 들어 있습니다. 모든 분석의 근거이기 때문에 절대 수정하지 않고, 분석 결과는 다른 파일에 따로 저장합니다."],
+  agent:["에이전트(Agent)","한 가지 역할만 맡은 AI 도우미","이 시스템에는 분석가, 검토자, Action 정리 담당, 화자 추천, 브리핑 담당처럼 역할이 나뉜 에이전트가 있고, 각자 쓸 수 있는 도구(권한)가 다릅니다. 한 명이 모든 걸 하지 않게 해서 서로 검증하게 합니다."],
+  llm:["LLM · Gemini","글을 이해하고 쓰는 AI. 여기서는 Google의 Gemini","녹취를 읽고 지시사항을 찾아 정리하는 일에 쓰입니다. 그럴듯한 거짓말(없는 내용 생성)을 할 수 있어서 검증 단계를 반드시 둡니다."],
+  reviewer:["Reviewer(검토자)","분석 결과가 녹취 근거와 맞는지 합격(PASS)/불합격(REJECT)만 판정하는 에이전트","고치거나 보완하지 않고 판정만 합니다. 불합격 후보는 Action이 되지 않으며, 사람이 근거를 확인했을 때만 직접 채택할 수 있습니다(채택해도 '확인 필요' 상태로 표시)."],
+  action:["Action","회의에서 정해진 '할 일' 한 건","담당자·기한·원문 근거·상태(신규/진행중/완료 후보/완료/확인 필요 등)를 가집니다. 상태가 바뀔 때마다 이력(history)이 남습니다."],
+  cand:["완료 후보","'끝난 것 같다'고 AI가 제안한 상태","다음 회의에서 담당자가 완료를 보고하면 AI가 후보로만 올립니다. 최종 '완료'는 사람이 근거를 확인하고 승인해야 합니다. 이것이 가장 중요한 안전 규칙 중 하나입니다."],
+  claudemd:["CLAUDE.md","AI에게 주는 프로젝트 규칙서","AI는 대화가 바뀌면 이전 약속을 잊습니다. 이 파일에 '항상 지킬 규칙'을 적어 두면 Claude Code가 작업할 때마다 읽습니다. 파일 이름이 정확히 CLAUDE.md여야 자동으로 읽힙니다."],
+  spec:["명세(SPEC.md)","무엇을 만들지 적은 설계 문서","'대충 이런 거 만들어줘' 대신 기능, 데이터, 안전 규칙, 합격 조건을 먼저 글로 정합니다. 이 프로젝트의 SPEC.md는 17개 장으로 되어 있습니다."],
+  sdd:["명세 기반 개발(SDD)","코드보다 문서(명세)를 먼저 만드는 개발 방식","규칙(CLAUDE.md) → 무엇(SPEC.md) → 할 일(tasks.md) → 코드 순서로 갑니다. AI가 매번 다른 방식으로 만드는 것을 막아 줍니다."],
+  ac:["수용 기준","'이 조건이면 합격'이라는 확인 기준","예: '담당자가 불명확하면 확인 필요로 표시한다'. 이 기준 하나하나가 테스트가 됩니다."],
+  test:["테스트(pytest)","코드가 기준대로 동작하는지 자동으로 검사하는 프로그램","TEST → FAIL → IMPLEMENT → PASS 순서로 만들었습니다. 먼저 테스트를 쓰면 실패(FAIL)해야 하고, 기능을 만들면 통과(PASS)해야 진짜 동작하는 것입니다."],
+  hook:["훅(Hook)","특정 순간에 자동으로 실행되는 명령","예: 도구를 쓰기 전(PreToolUse), 쓴 후(PostToolUse), 응답이 끝날 때(Stop), 세션 시작 때(SessionStart). AI의 판단과 상관없이 반드시 실행돼서 '빠뜨림'을 막는 장치입니다."],
+  deny:["deny 규칙","AI가 못 하게 막는 금지 목록","설정 파일(.claude/settings.json)에 '이 파일은 수정 금지'처럼 적으면 AI가 시도해도 차단됩니다. 말로 부탁하는 것보다 확실합니다."],
+  mcp:["MCP","AI가 외부 도구·데이터에 연결하는 표준 방식","예: 데이터베이스를 읽거나 GitHub 이슈에 결과를 올리는 연결. 연결할 때는 비밀 값을 코드에 넣지 않고 환경 변수로 관리해야 합니다."],
+  api:["API","프로그램끼리 대화하는 창구","화면이 서버에게 '이 회의 분석해줘'라고 요청하는 통로입니다. 이 프로젝트의 서버 주소는 /api/... 형태입니다."],
+  back:["백엔드","눈에 안 보이는 서버 쪽 프로그램","파일 저장, STT 호출, 분석, 검증 같은 실제 처리를 합니다. Python(FastAPI)으로 만들었습니다."],
+  front:["프런트엔드","눈에 보이는 화면 쪽 프로그램","브라우저에서 보이는 업로드, 화자 확인, Action 목록, 회의록 화면입니다. React로 만들었습니다."],
+  env:["환경 변수","비밀번호·키를 코드 밖에 두는 설정값","키를 코드에 적으면 GitHub에 올라가 유출됩니다. .env 파일이나 배포 서비스의 설정 화면에 넣고, .env는 저장소에 올리지 않습니다."],
+  stale:["재분석 필요(stale)","화자 정보가 바뀌어 기존 결과가 최신이 아닌 상태","화자 이름이 바뀌면 담당자·완료 판단이 달라질 수 있습니다. 그래서 자동으로 덮지 않고, 사용자가 버튼을 눌러 다시 분석하게 합니다. 부/과 같은 표시 정보만 바뀌면 재분석이 필요 없습니다."],
+  rerun:["AI 재분석","같은 녹취로 AI 분석을 처음부터 다시 실행하는 기능","분석 결과 화면의 '🔄 AI 재분석' 버튼으로 실행합니다(확인 창에서 동의해야 실행). ① 녹음 변환(STT)은 다시 하지 않아 원본 녹취록과 화자 정보는 그대로입니다. ② 요약·Action이 새 결과로 바뀌고 '분석 확정'은 해제됩니다. ③ 실패하면 이전 결과로 되돌립니다. ④ 이 회의 결과가 다른 회의에 이미 쓰였거나, 사람이 검토·채택한 Action이 있으면 안전을 위해 막습니다. AI는 매번 결과가 조금씩 다를 수 있어서 같은 결과가 나온다는 보장은 없습니다."],
+  cors:["CORS","브라우저가 다른 주소의 서버 호출을 허용하는 규칙","화면(Vercel 주소)이 서버(Render 주소)를 부르려면 서버가 그 주소를 허용 목록에 가지고 있어야 합니다. 빠지면 '연결 실패'로 보입니다."],
+  deploy:["배포","내 PC 밖 인터넷 서버에 올려 다른 사람이 쓰게 하는 것","화면은 Vercel, 서버는 Render처럼 각각 맞는 곳에 올렸습니다. 저장소(GitHub)에 push하면 자동으로 다시 배포됩니다."],
+  orch:["오케스트레이터","여러 에이전트의 실행 순서를 지휘하는 부분","새 지시 분석과 이전 지시 점검을 한 흐름으로 묶고, 하나가 실패해도 다른 결과는 지키도록 처리합니다."],
+  tts:["TTS","글을 음성으로 읽어 주는 기술","'지난 회의 브리핑'을 30~60초 음성으로 들려줄 때 씁니다. 지금은 Windows 전용 음성을 사용합니다."],
+  shell:["터미널","글자로 명령을 입력하는 창","PowerShell이 대표적입니다. 마우스 대신 명령으로 프로그램을 실행합니다."],
+  fc:["fail-closed","애매하면 허용하지 않고 막는 방식","예: 완료 근거가 불확실하면 '완료'로 만들지 않고 '확인 필요'로 남깁니다. 반대(애매하면 통과)는 사고로 이어집니다."]
+};
+
+/* ---------------- 만든 순서 ---------------- */
+const STEPS = [
+ {ic:"💡",t:"아이디어 정리",f:"0.회의정리.md",one:"어떤 서비스를 만들지 문장으로 정리했습니다.",
+  box:"처음엔 코드를 짜지 않고, AI 대화 도구에서 '회의 녹음에서 할 일을 뽑아 끝날 때까지 추적한다'는 컨셉을 글로 정리했습니다.",
+  li:["결과물: 회의정리.md (아이디어와 전체 컨셉)","이 글이 이후 모든 문서의 출발점입니다."]},
+ {ic:"📜",t:"규칙서 CLAUDE.md",f:"CLAUDE.md",one:"AI가 항상 지킬 절대 원칙 6개를 정했습니다.",
+  box:"<b>CLAUDE.md</b>가 없으면 AI가 매번 다른 방식으로 만듭니다. 그래서 '없는 말 만들지 않기, 추정 금지, 근거 남기기, 완료는 사람만, 원본 수정 금지'를 먼저 적었습니다.",
+  li:["절대 원칙 6개 + 보호 대상(원본 녹음·녹취록) + 프로젝트 구조","파일 이름이 정확히 <code>CLAUDE.md</code>여야 Claude Code가 작업을 시작할 때 자동으로 읽습니다 (처음엔 <code>0.CLAUDE.md</code>였다가 이름을 정리했습니다)."]},
+ {ic:"📐",t:"명세 SPEC.md 작성·검토",f:"specs/001-.../SPEC.md",one:"무엇을 만들지, 어떤 조건이면 합격인지 정했습니다.",
+  box:"<b>SPEC.md</b>는 사용자 스토리와 <b>수용 기준</b>, 데이터 모델, Agent 구성, 안전장치, 화면, 성공 기준을 담은 17개 장의 문서입니다. 작성 후 '코드는 수정하지 말고' 빈틈(담당자·기한 불명확, 지시와 제안 구분, 완료 판단)을 먼저 검토했습니다.",
+  li:["4장: 사용자 스토리와 수용기준","9장: 안전장치 · 17장: 결정/미결 사항"]},
+ {ic:"🗂",t:"설계 문서 묶음",f:"plan · research · data-model · contracts · quickstart · checklists",one:"어떤 기술로, 어떤 데이터 모양으로 만들지 정했습니다.",
+  box:"plan(기술·구조), research(STT·저장 방식 조사), data-model(Meeting, Action, Evidence 구조), contracts(에이전트와 화면 사이 입출력 규칙·JSON 스키마), quickstart(실행·테스트 방법), checklist(요구사항 빠짐 점검)를 만들었습니다.",
+  li:["contracts 폴더의 스키마 예시로 '유효/무효 데이터'를 테스트합니다."]},
+ {ic:"🧩",t:"작업 쪼개기 tasks.md",f:"tasks.md",one:"한 번에 한 조각씩만 만들도록 순서를 정했습니다.",
+  box:"tasks.md가 없으면 AI가 한 번에 너무 많은 코드를 건드립니다. 그래서 작은 작업(Task) 번호를 매겨 하나씩 진행했습니다.",
+  li:["규칙 → 무엇 → 할 일 → 코드: <b>RULES → WHAT → DO → CODE</b>"]},
+ {ic:"🧪",t:"테스트 먼저 (2.Test)",f:"2.Test.md · tests/",one:"TEST → FAIL → IMPLEMENT → PASS 순서로 만들었습니다.",
+  box:"수용 기준을 테스트로 먼저 쓰고, 일부러 실패(FAIL)하는 것을 확인한 뒤 최소 기능만 구현해 통과(PASS)시켰습니다. 담당자 추정 금지, 완료 승인 가드 같은 규칙이 테스트로 지켜집니다.",
+  li:["현재 자동 테스트 1005개 통과 (외부 AI 호출 없음)"]},
+ {ic:"🔌",t:"실제 구축 (3.Action)",f:"3.Action.md",one:"Gemini 연결, STT, 화면, Action 목록, 이행점검을 붙였습니다.",
+  box:"Gemini로 녹음을 글자로 바꾸고(STT), React 화면과 FastAPI 서버를 연결하고, 분석 결과를 Action 목록으로 보여주고, 이전 지시를 다음 회의에서 점검하는 흐름을 만들었습니다.",
+  li:["한 줄씩 끝까지 이어지는 얇은 경로(vertical slice)를 먼저 만들고 넓혔습니다."]},
+ {ic:"🎼",t:"멀티 에이전트 (4)",f:"4.Multi-Agent Orchestrator.md · .claude/agents/",one:"역할이 다른 에이전트들을 한 흐름으로 묶었습니다.",
+  box:"분석가(Read, Grep), 검토자(Read, Grep), Action 정리(Read, Grep, Bash), 브리핑(Read), 화자 추천(Read)처럼 <b>도구 권한이 서로 다른 에이전트</b>로 나눴습니다. <b>오케스트레이터</b>가 실행 순서와 실패 처리를 맡습니다.",
+  li:["판정·상태 전환은 기존 코드가 하고, 오케스트레이터는 순서만 지휘합니다."]},
+ {ic:"🔊",t:"지난 회의 브리핑 (5)",f:"5.Meeting-Briefing Agent.md",one:"이전 회의 요약과 현재 Action 상태를 30~60초 음성으로 만듭니다.",
+  box:"입력에 없는 사실을 만들지 못하게 브리핑 에이전트와 브리핑 검토 에이전트를 따로 두고, 승인된 문장만 음성(TTS)으로 만듭니다.",
+  li:["승인된 브리핑은 저장해 두고 다시 들을 때 AI를 다시 부르지 않습니다."]},
+ {ic:"🩹",t:"고친 기록 (6.FIXES)",f:"6.FIXES.md",one:"시연하며 생긴 문제와 조치를 기록했습니다.",
+  box:"데모 흐름 안정화, 회의 삭제·선택 복구, 브리핑 음성 다운로드 등 수정 내용을 git 기록 기준으로 남겼습니다.",
+  li:["고친 일을 적어 두면 같은 문제를 다시 만나도 빨리 해결합니다."]},
+ {ic:"🙋",t:"화자 확인·분석 후 수정 (8, 9)",f:"8.T-Speaker mapping · 9.etc",one:"AI가 화자를 추천하고, 사람이 확인하고, 바뀌면 다시 분석합니다.",
+  box:"화자 추천 에이전트가 이름을 <b>추정</b>하고 사람이 확인해야 확정됩니다. 부/과 정보를 구조화해 저장하고, 이름이 바뀌면 재분석, 부/과만 바뀌면 표시만 갱신합니다. 분석 확정, 날짜별 회의록, Reviewer 제외 후보의 사람 채택도 추가했습니다. 결과가 마음에 들지 않으면 같은 녹취로 <button class=\"term\" data-t=\"rerun\">AI 재분석<sup>*</sup></button>을 다시 실행할 수 있습니다.",
+  li:["AI 추천과 사람이 확인한 값은 파일도 따로 저장합니다.","🔄 AI 재분석: 녹음 변환(STT)은 그대로 두고 분석만 다시 합니다. 새 결과가 나오면 분석 확정은 해제되고, 실패하면 이전 결과로 되돌립니다."]},
+ {ic:"🚀",t:"배포 (Render + Vercel)",f:"Dockerfile · render.yaml · requirements.txt",one:"내 PC에서 인터넷으로 올렸습니다.",
+  box:"서버는 Render, 화면은 Vercel에 올렸습니다. 배포 중 키 입력 실수, 화면과 서버 연결(CORS), Gemini 혼잡(503/504) 같은 문제를 겪고 재시도·안내·로그 가림을 추가했습니다.",
+  li:["가상 데이터만 사용합니다. 무료 플랜은 재시작 시 데이터가 사라집니다."]}
+];
+
+/* ---------------- 꼭 들어가야 하는 것 ---------------- */
+const MUST = [
+ {k:"CLAUDE.md",from:"04",st:"part",label:"부분 충족",
+  std:"처음 보는 사람이 읽고 바로 실행할 수 있음",
+  now:"절대 원칙 6개, 보호 대상, 구조가 적힌 <b>CLAUDE.md</b>가 있고, README에 설치·실행·테스트 방법이 있습니다.",
+  todo:"이름은 <code>CLAUDE.md</code>로 정리해 자동으로 읽힙니다. 다만 문서의 폴더 구조(audio/, transcripts/original/)가 실제 저장 위치(runtime/&lt;mode&gt;/…)와 다릅니다.",
+  files:["CLAUDE.md","README.md","specs/001-meeting-action-agent/quickstart.md"]},
+ {k:"명세",from:"05",st:"ok",label:"충족",
+  std:"spec.md에 수용 기준이 있음",
+  now:"SPEC.md 4장 <b>사용자 스토리와 수용기준</b>이 있고, 데이터 모델·안전장치·성공 기준도 정리돼 있습니다. 트랙 E의 '파일럿 계획서'는 이 프로젝트와 해당하지 않습니다.",
+  files:["specs/001-meeting-action-agent/SPEC.md","data-model.md","contracts/"]},
+ {k:"테스트",from:"06",st:"ok",label:"충족",
+  std:"수용 기준마다 테스트, 전부 통과",
+  now:"TEST → FAIL → PASS로 만든 자동 테스트 <b>1005개가 모두 통과</b>합니다(2026-11-13 확인). 외부 AI 없이 가짜 데이터로 돌립니다. 트랙 E의 <code>claude plugin validate</code>는 해당하지 않습니다.",
+  todo:"화면(UI) 동작은 자동 테스트가 거의 없습니다. 날짜 그룹핑 등 일부 로직만 단위 테스트가 있습니다.",
+  files:["tests/ (analyst, api, briefing, manager, speaker …)","2.Test.md","pytest.ini"]},
+ {k:"역할 분리",from:"07 · 08 · 09",st:"ok",label:"충족",
+  std:"에이전트 두 개 이상, 도구 권한이 서로 다름",
+  now:"에이전트 <b>6개</b>가 있고 도구 권한이 다릅니다.<br>meeting-analyst · reviewer: Read, Grep<br>action-manager: Read, Grep, <b>Bash</b><br>meeting-briefing · briefing-reviewer · speaker-identifier: Read",
+  files:[".claude/agents/*.md","4.Multi-Agent Orchestrator.md"]},
+ {k:"안전장치",from:"08",st:"part",label:"부분 충족",
+  std:"deny 규칙 하나 이상, 훅 하나 이상 (원본·정답 데이터 수정을 deny로 막음)",
+  now:"<b>코드 수준 안전장치는 강합니다</b>: 완료 가드(AI는 '완료' 불가), Reviewer 검증, 원본 녹취 불변 테스트, AI 추천과 확정 분리, 키 형식 검사와 로그 가림, 재분석·삭제 시 사람이 검토한 Action 보호.<br><b>훅</b>은 Stop 훅 1개가 있으나 지금은 <u>동작 확인용 로그</u>만 남깁니다.",
+  todo:"<b>deny 규칙이 아직 없습니다.</b> CLAUDE.md에는 'settings.json의 deny 규칙과 훅으로 보호'라고 적혀 있지만 실제 .claude/settings.json에는 없습니다. 예: <code>transcripts/original/**</code>, <code>audio/**</code> 수정 deny와, 원본 수정 시도를 막는 PreToolUse 훅을 추가해야 기준을 완전히 충족합니다.",
+  files:[".claude/settings.json","7.hooks.md","tests/state/test_completion_guard.py"]},
+ {k:"사내 운영",from:"11",st:"part",label:"부분 충족",
+  std:"비밀 값은 환경 변수, 실제 사내 데이터 없음, 회사 정책에 맞는 연결 방식",
+  now:"<b>GEMINI_API_KEY</b>는 .env(저장소에 올리지 않음)와 Render 환경 변수로만 넣습니다. 실제 사내 데이터는 없고 <b>가상 데이터</b>만 씁니다.",
+  todo:"회사 정책에 맞는 연결인지(외부 Gemini·Render·Vercel 사용)는 아직 확인되지 않았습니다. 배포 중 키가 로그·스크린샷에 노출된 적이 있어 로그 가림을 추가했고, 해당 키는 폐기해야 합니다. 서버에는 로그인(인증)이 없습니다.",
+  files:[".env.example",".gitignore","render.yaml"]},
+ {k:"외부 연결",from:"10",st:"na",label:"해당 확인 필요",
+  std:"트랙 A는 MCP 하나 이상(예: CSV→SQLite→DB MCP로 읽기, GitHub 이슈로 결과 올리기). 트랙 B, C, D는 비교 테스트",
+  now:"이 프로젝트에 <b>MCP 연결은 없습니다.</b> 외부 연결은 Gemini API(STT·분석)와 GitHub·Render·Vercel입니다.",
+  todo:"<b>트랙 A라면</b> MCP 연결이 필요합니다(예: Action 목록을 GitHub 이슈로 올리기). 트랙 B·C·D라면 비교 테스트가 필요한지 확인하세요. 어느 트랙인지에 따라 달라집니다.",
+  files:["src/meeting_action_agent/llm.py","stt/gemini_stt.py"]}
+];
+
+/* ---------------- 사용 흐름 ---------------- */
+const USE = [
+ ["회의 등록","제목·날짜·녹음 파일(mp3/wav/m4a)을 올립니다."],
+ ["음성 변환(STT)","녹음이 글자 녹취록이 되고, 화자가 speaker_1, 2…로 나뉩니다."],
+ ["화자 확인","AI가 이름을 추천하면 사람이 확인·수정합니다. 부/과도 입력할 수 있습니다."],
+ ["분석 + 검증","분석가가 지시를 찾고 Reviewer가 근거를 확인합니다. 통과한 것만 Action이 됩니다."],
+ ["결과 확인","Action 목록, 결정·미결사항, 요약을 봅니다. 제외된 후보는 근거를 확인해 채택할 수 있습니다."],
+ ["AI 재분석 (선택)","결과가 마음에 들지 않으면 <button class=\"term\" data-t=\"rerun\">🔄 AI 재분석<sup>*</sup></button>으로 같은 녹취를 다시 분석합니다. 새 결과는 다시 확인해야 합니다."],
+ ["분석 확정","확인이 끝나면 확정합니다. Action이 0건이어도 확정할 수 있습니다."],
+ ["다음 회의","이전 회의를 선택하면 지난 지시가 이행됐는지 점검하고 '완료 후보'를 제안합니다."],
+ ["사람 승인","완료 후보를 사람이 확인하고 승인해야 '완료'가 됩니다. 회의록 탭에서 날짜별로 다시 볼 수 있습니다."]
+];
+
+/* ---------------- 렌더링 ---------------- */
+const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
+const star='<sup>*</sup>';
+
+// 타임라인
+const stepsEl=$('#steps'), detail=$('#detail'); let cur=0, timer=null;
+STEPS.forEach((s,i)=>{const li=document.createElement('li');
+  li.innerHTML=`<button type="button" data-i="${i}"><span class="dot">${i+1}</span><span class="nm">${s.t}</span></button>`; stepsEl.appendChild(li);});
+function showStep(i,anim=true){
+  cur=(i+STEPS.length)%STEPS.length; const s=STEPS[cur];
+  $$('li',stepsEl).forEach((li,k)=>{li.classList.toggle('on',k===cur);li.classList.toggle('done',k<cur)});
+  detail.innerHTML=`<span class="chip">${cur+1} / ${STEPS.length}</span><span class="chip">${s.f}</span>
+   <h3>${s.ic} ${s.t}</h3><p style="margin:4px 0 0;font-weight:600">${s.one}</p>
+   <div class="box"><b class="lab">세부설명</b>${s.box}</div><ul>${s.li.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+  if(anim){detail.classList.remove('swap');void detail.offsetWidth;detail.classList.add('swap')}
+}
+stepsEl.addEventListener('click',e=>{const b=e.target.closest('button[data-i]');if(b){stop();showStep(+b.dataset.i)}});
+$('#next').onclick=()=>{stop();showStep(cur+1)}; $('#prev').onclick=()=>{stop();showStep(cur-1)};
+function stop(){if(timer){clearInterval(timer);timer=null;$('#play').textContent='▶ 순서대로 자동 재생'}}
+$('#play').onclick=()=>{ if(timer){stop();return}
+  $('#play').textContent='⏸ 멈추기'; showStep(0);
+  timer=setInterval(()=>{ if(cur>=STEPS.length-1){stop();return} showStep(cur+1)},3200)};
+showStep(0,false);
+
+// 꼭 들어가야 하는 것
+const cards=$('#cards');
+MUST.forEach(m=>{const d=document.createElement('div');d.className='card reveal';
+  d.innerHTML=`<h3>${m.k}<span class="badge ${m.st}">${m.label}</span></h3>
+  <span class="chip" style="align-self:flex-start">배운 곳 ${m.from}</span>
+  <p class="std"><b>기준</b> · ${m.std}</p><p class="now"><b>이 프로젝트</b> · ${m.now}</p>
+  ${m.todo?`<div class="todo">🔧 ${m.todo}</div>`:''}
+  <details><summary>근거 파일 보기</summary><ul style="margin:6px 0 0;padding-left:18px">${m.files.map(f=>`<li><code>${f}</code></li>`).join('')}</ul></details>`;
+  cards.appendChild(d)});
+const okN=MUST.filter(m=>m.st==='ok').length;
+function animateRing(){const r=$('#ring');let p=0;const to=okN/MUST.length*100;
+  const t=setInterval(()=>{p=Math.min(to,p+3);r.style.setProperty('--p',p);$('#ringTxt').textContent=`${Math.round(p/100*MUST.length*10)/10>=okN?okN:Math.floor(p/100*MUST.length)}/${MUST.length}`;if(p>=to){clearInterval(t);$('#ringTxt').textContent=`${okN}/${MUST.length}`}},25)}
+
+// 사용 흐름
+const ug=$('#usageGrid');USE.forEach(([t,d],i)=>{const e=document.createElement('div');e.className='use';e.style.transitionDelay=(i*70)+'ms';
+  e.innerHTML=`<b>${t}</b><p>${d}</p>`;ug.appendChild(e)});
+
+// 실행 탭 + 복사
+$('#runTabs').addEventListener('click',e=>{const b=e.target.closest('button[data-p]');if(!b)return;
+  $$('#runTabs button').forEach(x=>x.setAttribute('aria-selected',x===b));
+  $$('.pane').forEach(p=>p.classList.toggle('on',p.id===b.dataset.p))});
+$$('pre').forEach(pre=>{const b=$('button',pre);if(!b)return;b.onclick=()=>{
+  const txt=pre.textContent.replace(/^복사/,'').trim();
+  (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>{b.textContent='복사됨 ✓'}).catch(()=>{b.textContent='직접 선택해 복사'});
+  setTimeout(()=>b.textContent='복사',1600)}});
+
+// 용어 사전
+const gl=$('#glGrid');
+Object.entries(G).forEach(([k,[name,easy,det]])=>{const d=document.createElement('details');d.dataset.k=k;d.dataset.s=(name+easy+det).toLowerCase();
+  d.innerHTML=`<summary>${name}<span class="star">*</span></summary><span class="easy">${easy}</span><span class="lab">세부설명</span><p>${det}</p>`;gl.appendChild(d)});
+$('#q').addEventListener('input',e=>{const v=e.target.value.trim().toLowerCase();$$('details',gl).forEach(d=>d.style.display=!v||d.dataset.s.includes(v)?'':'none')});
+$('#openAll').onclick=()=>$$('details',gl).forEach(d=>d.open=true); $('#closeAll').onclick=()=>$$('details',gl).forEach(d=>d.open=false);
+
+// 용어 툴팁
+const tip=$('#tip');let tipFor=null;
+function openTip(btn){const g=G[btn.dataset.t];if(!g)return;tipFor=btn;
+  tip.innerHTML=`<h4>${g[0]}<span class="star">*</span></h4><p class="easy">${g[1]}</p><span class="lab">세부설명</span><p>${g[2]}</p>`;
+  tip.classList.add('show');const r=btn.getBoundingClientRect(),w=Math.min(340,innerWidth-24);tip.style.maxWidth=w+'px';
+  let x=Math.max(12,Math.min(r.left,innerWidth-w-12)),y=r.bottom+8;tip.style.left=x+'px';tip.style.top=y+'px';
+  const h=tip.offsetHeight;if(y+h>innerHeight-8)tip.style.top=Math.max(8,r.top-h-8)+'px'}
+function closeTip(){tip.classList.remove('show');tipFor=null}
+document.addEventListener('click',e=>{const b=e.target.closest('.term');
+  if(b){e.stopPropagation();tipFor===b?closeTip():openTip(b);return}
+  if(!e.target.closest('#tip'))closeTip()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeTip()});
+addEventListener('scroll',()=>{if(tipFor)closeTip()},{passive:true});
+
+// 스크롤 진행, 메뉴 강조, 등장 효과
+const bar=$('#bar'),links=$$('#menu a');
+addEventListener('scroll',()=>{const h=document.documentElement;bar.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%'},{passive:true});
+const secs=links.map(a=>$(a.getAttribute('href')));
+if(!('IntersectionObserver' in window)){ // 오래된 브라우저: 효과 없이 모두 표시
+  $$('.reveal,.use').forEach(e=>e.classList.add('in'));animateRing()
+}else{
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting)return;e.target.classList.add('in');
+    if(e.target.id==='usage')$$('.use').forEach(u=>u.classList.add('in'));
+    if(e.target.classList.contains('sum'))animateRing();
+    const i=secs.indexOf(e.target);if(i>=0)links.forEach((l,k)=>l.classList.toggle('on',k===i))}),{threshold:.25});
+  $$('.reveal,.block').forEach(el=>io.observe(el)); secs.forEach(s=>s&&io.observe(s));
+}
+if(matchMedia('(prefers-reduced-motion:reduce)').matches){$('#ringTxt').textContent=`${okN}/${MUST.length}`;$('#ring').style.setProperty('--p',okN/MUST.length*100)}
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 # Data Model — Meeting Action Agent
 
 > 정본: `SPEC.md` 5장. 이 문서는 구현용 정리이며, 충돌하면 SPEC.md가 우선한다.
-> 필드 변경은 SPEC.md를 먼저 수정한다 (0.CLAUDE.md). 기계 검증용 스키마는 `contracts/`에 있다.
+> 필드 변경은 SPEC.md를 먼저 수정한다 (CLAUDE.md). 기계 검증용 스키마는 `contracts/`에 있다.
 > 작성일: 2026-11-11 / 상태: 초안
 
 ## 1. 엔티티 개요

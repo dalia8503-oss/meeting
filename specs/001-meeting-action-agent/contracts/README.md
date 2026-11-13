@@ -1,6 +1,6 @@
 # contracts/ — 데이터 계약 (JSON Schema)
 
-> 기준: `../SPEC.md` 5장, `../../../0.CLAUDE.md` 데이터 인터페이스.
+> 기준: `../SPEC.md` 5장, `../../../CLAUDE.md` 데이터 인터페이스.
 > **SPEC.md가 정본이다.** 이 폴더는 SPEC의 필드 정의를 기계가 검증할 수 있는 형태로 옮긴 것이며, 필드를 바꾸려면 SPEC.md를 먼저 수정한 뒤 여기를 맞춘다.
 > JSON Schema Draft 2020-12. 모든 스키마는 `common.schema.json`의 정의를 `$ref`로 공유한다.
 

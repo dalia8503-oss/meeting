@@ -24,7 +24,7 @@
 - [ ] T-00-7 A↔B 인터페이스용 가짜 녹취 JSON + 회의 메타데이터(`meeting_date`, `speaker_map`) 작성 (병렬 개발용) ← T-00-5
 - [ ] T-00-8 pytest 구성, 의존성 파일(`requirements.txt` 또는 `pyproject.toml`) 작성, 정답표 로더 공용 fixture. `contracts/validate_examples.py`를 `tests/`의 계약 테스트로 이관(`examples/valid` 통과, `examples/invalid` 거부)
 - [ ] T-00-9 **원본 보호 방식 실험·결정 (R-08)**: deny 규칙이 "신규 허용·기존 차단"을 표현하는지 간단한 실험으로 확인하고, 불가능하면 Hook·애플리케이션 배타적 생성(`open(path, "x")`)·생성 시 해시 기록·읽기 전용 속성의 병행 방안을 정한다. 결과에 따라 T-00-3 문구와 SPEC 9장 수정 여부를 사용자와 결정
-- [x] T-00-10 **문서 위치 정리**: 위치는 `specs/001-.../` 유지로 결정(2026-11-11). 0.CLAUDE.md, plan.md, checklists, contracts/README, quickstart, data-model, research의 참조를 새 위치 기준으로 수정함
+- [x] T-00-10 **문서 위치 정리**: 위치는 `specs/001-.../` 유지로 결정(2026-11-11). CLAUDE.md, plan.md, checklists, contracts/README, quickstart, data-model, research의 참조를 새 위치 기준으로 수정함
 - [ ] T-00-11 **SPEC 보완 반영 요청**: data-model.md 8장의 임시 결정 10건과 checklists/requirements.md의 "SPEC 수정 필요" 13건(CHK011~015, 019~024, 045, 047)을 정리해 사용자 승인 후 SPEC 5~6장에 반영. 특히 근거 발언 `speaker` 필드(CHK011)는 T-06-2의 선행 조건
 - [ ] T-00-12 녹취·메타데이터 로더: 스키마 검증(`contracts/`) + 한 파일의 `meeting_id` 동일·`timestamp` 시간순 검증. 가짜 JSON 단계부터 사용 ← T-00-7, T-00-8
 - [x] T-00-13 벤치마크용 테스트 음성 준비 (R-10): 정답표 대본을 직접 녹음 또는 TTS로 제작. (완료: `tests/fixtures/stt/tts_meeting_001.*`, Windows SAPI ko-KR TTS 36초·4화자, `scripts/make_tts_fixture.py`. 단일 한국어 음성의 pitch/rate 변형이라 화자 구분 평가(T-02-8)에는 낙관·왜곡 가능) 실제 회사 회의는 쓰지 않는다. P7 착수 전까지 ← T-00-5, T-00-6
@@ -180,7 +180,7 @@
 - [ ] T-13-1 시연 시나리오 리허설 (신규 회의 → 다음 회의)
 - [ ] T-13-2 발표 자료 (A: 회의 이해 과정 / B: 지시 추적 과정)
 - [ ] T-13-3 README.md 작성 (실행 방법, 폴더 구조, 안전장치 설명)
-- [ ] T-13-4 0.CLAUDE.md 프로젝트 구조도 갱신 (`src/` 도입이 승인된 경우). 0.CLAUDE.md 변경은 사용자 승인 후
+- [ ] T-13-4 CLAUDE.md 프로젝트 구조도 갱신 (`src/` 도입이 승인된 경우). CLAUDE.md 변경은 사용자 승인 후
 - [ ] T-13-5 quickstart.md 갱신: T-00-2~4 완료, T-00-8 완료, 첫 Agent 구현(P2), STT(P7), Dashboard(P8) 시점마다 `[예정]` → `[가능]` (quickstart 10장 기준)
 
 ## 14. 시간이 남으면 (선택)
@@ -193,7 +193,7 @@
 
 ## 미결 의존 요약
 
-착수 전에 결정이 필요한 항목이다. 결정되면 SPEC.md에 먼저 반영한다 (0.CLAUDE.md). SPEC 수정은 사용자 승인 후에만 한다.
+착수 전에 결정이 필요한 항목이다. 결정되면 SPEC.md에 먼저 반영한다 (CLAUDE.md). SPEC 수정은 사용자 승인 후에만 한다.
 
 | 미결 항목 | 근거 | 영향 task | 결정 시점 |
 |---|---|---|---|

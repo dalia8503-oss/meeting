@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://meeting-action-agent.example/contracts/review-result.schema.json",
   "title": "Review result (Reviewer 판정)",
-  "description": "Reviewer는 PASS/REJECT와 사유만 낸다. 직접 수정하지 않는다 (0.CLAUDE.md, SPEC 6.3). 판정은 대상 1건 단위이다. reason code는 SPEC 6.3의 PASS/REJECT 기준을 코드화한 제안이다 (data-model.md 8장).",
+  "description": "Reviewer는 PASS/REJECT와 사유만 낸다. 직접 수정하지 않는다 (CLAUDE.md, SPEC 6.3). 판정은 대상 1건 단위이다. reason code는 SPEC 6.3의 PASS/REJECT 기준을 코드화한 제안이다 (data-model.md 8장).",
   "type": "object",
   "additionalProperties": false,
   "required": ["target", "verdict", "reasons", "attempt"],
