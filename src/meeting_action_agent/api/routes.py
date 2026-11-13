@@ -13,6 +13,11 @@ router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
 
 
+def _busy(e: BaseException) -> bool:
+    """Gemini 쪽 일시적 서버 오류(503 과부하·504 시간 초과)가 재시도 끝에 남은 경우."""
+    return type(e).__module__.startswith("google.genai") and getattr(e, "code", None) in (503, 504)
+
+
 def _error(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"detail": {"code": code, "message": message}})
 
@@ -104,7 +109,10 @@ def post_speaker_suggestions(meeting_id: str):
         return service.suggest_speakers(meeting_id)
     except service.ApiError as e:
         return _error(e.status, e.code, e.message)
-    except Exception:
+    except Exception as e:
+        if _busy(e):
+            log.warning("gemini busy: %s", type(e).__name__)
+            return _error(503, "gemini_busy", "Gemini가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.")
         log.exception("speaker suggestion failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
@@ -128,7 +136,10 @@ def reanalyze_meeting(meeting_id: str):
         return service.reanalyze_meeting(meeting_id)
     except service.ApiError as e:
         return _error(e.status, e.code, e.message)
-    except Exception:
+    except Exception as e:
+        if _busy(e):
+            log.warning("gemini busy: %s", type(e).__name__)
+            return _error(503, "gemini_busy", "Gemini가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.")
         log.exception("meeting reanalysis failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
@@ -140,7 +151,10 @@ def analyze_meeting(meeting_id: str, body: Optional[AnalyzeRequest] = Body(None)
         return service.analyze_meeting(meeting_id, body.previous_meeting_ids if body else None)
     except service.ApiError as e:
         return _error(e.status, e.code, e.message)
-    except Exception:
+    except Exception as e:
+        if _busy(e):
+            log.warning("gemini busy: %s", type(e).__name__)
+            return _error(503, "gemini_busy", "Gemini가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.")
         log.exception("meeting analysis failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 

@@ -108,7 +108,9 @@ def _gemini_json_runner(prompt: str) -> str:
     from meeting_action_agent.llm import GEMINI_DEFAULT_MODEL
 
     client = genai.Client(http_options=types.HttpOptions(timeout=int(float(os.environ.get("GEMINI_TIMEOUT_SEC", 60)) * 1000)))
-    r = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL, contents=prompt,
+    from meeting_action_agent.llm import generate_with_retry
+
+    r = generate_with_retry(
+        client, model=os.environ.get("GEMINI_MODEL") or GEMINI_DEFAULT_MODEL, contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json"))
     return r.text

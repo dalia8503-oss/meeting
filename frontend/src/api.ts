@@ -256,6 +256,7 @@ const API_ERRORS: Record<string, string> = {
   invalid_transition: '현재 상태에서는 허용되지 않는 처리입니다. 화면의 상태가 오래되었을 수 있습니다.',
   action_not_found: 'Action을 찾을 수 없습니다.',
   transcript_not_ready: '아직 음성 변환(STT)이 되지 않은 회의입니다.',
+  gemini_busy: 'Gemini가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.',
   rejected_not_found: '제외된 후보를 찾을 수 없습니다. 화면을 새로고침해 주세요.',
   already_adopted: '이미 Action으로 채택한 후보입니다.',
   already_registered: '같은 담당자의 같은 업무가 이미 Action으로 등록되어 있습니다.',

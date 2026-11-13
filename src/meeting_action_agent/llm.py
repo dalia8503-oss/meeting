@@ -92,6 +92,23 @@ def gemini_response_schema() -> dict:
     return convert(load("meeting-analysis.schema.json"), "meeting-analysis.schema.json")
 
 
+GEMINI_RETRY_CODES = (503, 504)
+GEMINI_RETRY_WAITS = (5, 10, 20)  # 초. 일시적 과부하·시간 초과만 재시도한다 (4회 시도)
+
+
+def generate_with_retry(client, **kwargs):
+    """client.models.generate_content를 일시적 서버 오류(503 과부하, 504 시간 초과)에 한해 재시도한다. 그 외 오류는 그대로 던진다."""
+    from google.genai import errors
+
+    for attempt in range(len(GEMINI_RETRY_WAITS) + 1):
+        try:
+            return client.models.generate_content(**kwargs)
+        except errors.ServerError as e:
+            if e.code not in GEMINI_RETRY_CODES or attempt == len(GEMINI_RETRY_WAITS):
+                raise
+            time.sleep(GEMINI_RETRY_WAITS[attempt])
+
+
 def gemini_runner(prompt: str) -> str:
     """prompt → Gemini API(google-genai) → 응답 text. GEMINI_API_KEY(.env 또는 환경변수), GEMINI_MODEL(선택).
 
@@ -106,7 +123,7 @@ def gemini_runner(prompt: str) -> str:
     timeout = float(os.environ.get("GEMINI_TIMEOUT_SEC", GEMINI_TIMEOUT_SEC))
     model = os.environ.get("GEMINI_MODEL", GEMINI_DEFAULT_MODEL)
     client = genai.Client(http_options=types.HttpOptions(timeout=int(timeout * 1000)))  # GEMINI_API_KEY 사용
-    for attempt in range(3):  # 일시적 과부하(503 UNAVAILABLE)만 재시도
+    for attempt in range(4):  # 일시적 과부하(503 UNAVAILABLE)만 재시도 (5·10·15초 간격)
         try:
             response = client.models.generate_content(
                 model=model,
@@ -124,7 +141,7 @@ def gemini_runner(prompt: str) -> str:
                     f"Gemini API가 제한시간 내 응답하지 못했습니다 (504 DEADLINE_EXCEEDED): "
                     f"model={model}, timeout={timeout:g}초"
                 ) from None
-            if e.code != 503 or attempt == 2:
+            if e.code != 503 or attempt == 3:
                 raise
             time.sleep(5 * (attempt + 1))
         except Exception as e:
