@@ -40,21 +40,50 @@ export async function fetchMeetings(): Promise<MeetingSummary[]> {
   return body.meetings
 }
 
-/** 사용자가 명시적으로 누른 회의 삭제. 서버가 성공을 돌려준 뒤에만 호출 측이 목록에서 제거한다. */
-export async function deleteMeeting(meetingId: string): Promise<void> {
+export interface RelatedMeeting {
+  meeting_id: string
+  title: string
+  meeting_date: string
+  action_count: number
+}
+
+/** 다른 회의와 연결돼 단독 삭제가 막혔다. related는 함께 삭제해야 하는 연결 회의다 (사용자가 확인한 뒤 cascade로 다시 요청). */
+export class MeetingReferencedError extends Error {
+  related: RelatedMeeting[]
+  constructor(related: RelatedMeeting[]) {
+    super('이 회의는 다른 회의와 연결되어 있어 단독으로 삭제할 수 없습니다.')
+    this.related = related
+  }
+}
+
+/**
+ * 사용자가 명시적으로 누른 회의 삭제. 서버가 성공을 돌려준 뒤에만 호출 측이 목록에서 제거한다.
+ * cascade=true는 사용자가 연결된 회의 목록을 확인하고 동의한 경우에만 쓴다. 함께 삭제된 회의 id 목록을 돌려준다.
+ */
+export async function deleteMeeting(meetingId: string, cascade = false): Promise<string[]> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/api/meetings/${encodeURIComponent(meetingId)}`, { method: 'DELETE' })
+    res = await fetch(`${API_BASE}/api/meetings/${encodeURIComponent(meetingId)}${cascade ? '?cascade=true' : ''}`, { method: 'DELETE' })
   } catch {
     throw new Error('Backend에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.')
   }
-  if (res.ok) return
+  if (res.ok) {
+    try {
+      return ((await res.json())?.also_deleted as string[] | undefined) ?? []
+    } catch {
+      return []
+    }
+  }
   let code = ''
+  let related: RelatedMeeting[] = []
   try {
-    code = (await res.json())?.detail?.code ?? ''
+    const d = (await res.json())?.detail
+    code = d?.code ?? ''
+    related = Array.isArray(d?.related) ? d.related : []
   } catch {
     /* ignore */
   }
+  if (code === 'meeting_referenced' && related.length > 0) throw new MeetingReferencedError(related)
   const messages: Record<string, string> = {
     meeting_referenced: '이 회의의 업무가 다른 회의에서 이미 추적되고 있어 삭제할 수 없습니다.',
     meeting_busy: '분석 중인 회의는 삭제할 수 없습니다.',
@@ -445,10 +474,12 @@ export function suggestSpeakers(meetingId: string): Promise<{ meeting_id: string
 }
 
 /** 화자가 바뀌어 stale이 된 분석을 사용자가 명시적으로 다시 실행한다. */
-export function reanalyzeMeeting(meetingId: string): Promise<AnalysisResult> {
+export function reanalyzeMeeting(meetingId: string, force = false): Promise<AnalysisResult> {
   return call<AnalysisResult>(
     `/api/meetings/${encodeURIComponent(meetingId)}/reanalyze`,
-    { method: 'POST' },
+    force
+      ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force: true }) }
+      : { method: 'POST' },
     '재분석에 실패했습니다. 잠시 후 다시 시도해 주세요.',
   )
 }

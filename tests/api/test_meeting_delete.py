@@ -49,7 +49,7 @@ def test_delete_uploaded_only_meeting(client, base):
     mid = upload(client, "2026-11-10")
     assert files_of(base, mid)
     r = client.delete(f"/api/meetings/{mid}")
-    assert r.status_code == 200 and r.json() == {"deleted": True, "meeting_id": mid}
+    assert r.status_code == 200 and r.json() == {"deleted": True, "meeting_id": mid, "also_deleted": []}
     assert files_of(base, mid) == [] and ids(client) == []
 
 
@@ -151,3 +151,54 @@ def test_delete_twice_second_is_404(client):
     mid = upload(client, "2026-11-10")
     assert client.delete(f"/api/meetings/{mid}").status_code == 200
     assert client.delete(f"/api/meetings/{mid}").status_code == 404
+
+
+# ---- 연결된 회의 함께 삭제 (cascade): 서로 물려 있어 한 건씩은 지울 수 없는 데이터 정리
+def _linked_pair(client):
+    first = upload(client, "2026-11-10")
+    client.post(f"/api/meetings/{first}/analyze")
+    second = upload(client, "2026-11-17", payload=WAV.read_bytes() + b"\x00")
+    assert client.post(f"/api/meetings/{second}/analyze", json={"previous_meeting_ids": [first]}).status_code == 200
+    return first, second
+
+
+def test_blocked_delete_lists_related_meetings(client, base):
+    first, second = _linked_pair(client)
+    r = client.delete(f"/api/meetings/{first}")
+    d = r.json()["detail"]
+    assert r.status_code == 409 and d["code"] == "meeting_referenced"
+    assert [m["meeting_id"] for m in d["related"]] == [second]
+    assert {"title", "meeting_date", "action_count"} <= set(d["related"][0])
+    assert first in ids(client) and second in ids(client)  # 확인 전에는 아무것도 지우지 않는다
+
+
+def test_cascade_delete_removes_linked_meetings_and_their_actions(client, base):
+    first, second = _linked_pair(client)
+    lone = upload(client, "2026-12-01", payload=WAV.read_bytes() + b"\x01")
+    lone_before = files_of(base, lone)
+    r = client.delete(f"/api/meetings/{first}?cascade=true")
+    assert r.status_code == 200 and r.json()["also_deleted"] == [second]
+    assert files_of(base, first) == [] and files_of(base, second) == []
+    actions_path = base / "actions" / "actions.json"
+    remaining = json.loads(actions_path.read_text(encoding="utf-8")) if actions_path.is_file() else []
+    assert all(a["meeting_id"] not in (first, second) for a in remaining)
+    assert ids(client) == [lone] and files_of(base, lone) == lone_before  # 연결되지 않은 회의는 그대로
+
+
+def test_cascade_on_unlinked_meeting_deletes_only_itself(client, base):
+    a = upload(client, "2026-11-10")
+    b = upload(client, "2026-11-11", payload=WAV.read_bytes() + b"\x01")
+    r = client.delete(f"/api/meetings/{a}?cascade=true")
+    assert r.status_code == 200 and r.json()["also_deleted"] == [] and ids(client) == [b]
+
+
+def test_cascade_refused_while_a_linked_meeting_is_busy(client, base):
+    from meeting_action_agent.api import service
+    first, second = _linked_pair(client)
+    service._running.add(second)
+    try:
+        r = client.delete(f"/api/meetings/{first}?cascade=true")
+    finally:
+        service._running.discard(second)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "meeting_busy"
+    assert first in ids(client) and second in ids(client)

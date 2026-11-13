@@ -69,6 +69,8 @@ export default function MeetingForm() {
   /** 삭제 성공 후: 선택에서 제거하고(브리핑 카드도 key/조건으로 함께 사라진다) 목록을 다시 불러온다. */
   const onDeleted = (id: string) => {
     setPreviousIds((ids) => ids.filter((x) => x !== id))
+    // 연결 회의와 함께 지워진 회의가 지금 화면에 열려 있으면 빈 등록 화면으로 돌아간다.
+    setState((cur) => (cur.s === 'success' && cur.meeting.meeting_id === id ? { s: 'idle' } : cur))
     void loadPrevious()
   }
 
@@ -216,11 +218,11 @@ export default function MeetingForm() {
   }
 
   /** 사용자가 명시적으로 누른 재분석. 자동 재분석은 하지 않는다. */
-  const reanalyze = async (meeting: MeetingCreated) => {
+  const reanalyze = async (meeting: MeetingCreated, force = false) => {
     setReanalyzing(true)
     setReanalyzeError('')
     try {
-      const result = await reanalyzeMeeting(meeting.meeting_id)
+      const result = await reanalyzeMeeting(meeting.meeting_id, force)
       setState({ s: 'success', meeting, result })
       setFinalizeError('')
       void loadPrevious()
@@ -316,6 +318,12 @@ export default function MeetingForm() {
             onActionUpdated={replaceAction}
             onSpeakerSaved={onSpeakerSaved}
             onReanalyze={() => reanalyze(state.meeting)}
+            onRerun={() => {
+              // AI 재분석은 현재 결과(요약·Action 등)를 새 결과로 바꾸므로 사용자가 확인한 경우에만 실행한다.
+              if (window.confirm('같은 녹취와 화자 확인으로 AI 분석을 다시 실행합니다.\n\n현재 분석 결과(요약·Action 등)는 새 결과로 바뀌고, 분석 확정은 해제됩니다. 녹취와 화자 정보는 그대로입니다.\n계속할까요?')) {
+                void reanalyze(state.meeting, true)
+              }
+            }}
             reanalyzing={reanalyzing}
             reanalyzeError={reanalyzeError}
             onFinalize={() => finalize(state.meeting)}

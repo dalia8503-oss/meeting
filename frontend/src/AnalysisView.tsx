@@ -264,7 +264,9 @@ interface NextStepsProps {
   finalizing: boolean
   finalizeError?: string
   onReanalyze: () => void
+  onRerun: () => void
   reanalyzing: boolean
+  reanalyzeError?: string
   onNextMeeting: () => void
   onMeetingList: () => void
 }
@@ -273,7 +275,7 @@ interface NextStepsProps {
  * 분석 완료 후 "다음 단계". Action 0건이어도 확정할 수 있다 (Action 0건은 오류가 아니다).
  * 확정은 사람이 결과를 확인했다는 표시일 뿐이며 Reviewer 판정·Action 상태를 바꾸지 않는다.
  */
-function NextSteps({ result, onFinalize, finalizing, finalizeError, onReanalyze, reanalyzing, onNextMeeting, onMeetingList }: NextStepsProps) {
+function NextSteps({ result, onFinalize, finalizing, finalizeError, onReanalyze, onRerun, reanalyzing, reanalyzeError, onNextMeeting, onMeetingList }: NextStepsProps) {
   const [editing, setEditing] = useState(false)
   const rejected = result.rejected.length
   const finalized = !!result.analysis_finalized && !result.stale
@@ -295,6 +297,13 @@ function NextSteps({ result, onFinalize, finalizing, finalizeError, onReanalyze,
             <span className="muted small">저장된 회의와 분석 결과를 확인합니다.</span>
           </div>
         </div>
+        {reanalyzeError && <p className="error small" role="alert">{reanalyzeError}</p>}
+        <p className="small next-desc">
+          <button type="button" className="btn-link" disabled={reanalyzing} onClick={onRerun}>
+            {reanalyzing ? 'AI 다시 분석 중…' : '🔄 AI 재분석'}
+          </button>{' '}
+          <span className="muted">결과가 마음에 들지 않으면 같은 녹취로 다시 분석합니다 (확정은 해제됩니다).</span>
+        </p>
       </section>
     )
   }
@@ -343,8 +352,14 @@ function NextSteps({ result, onFinalize, finalizing, finalizeError, onReanalyze,
         </div>
       )}
       {finalizeError && <p className="error small" role="alert">{finalizeError}</p>}
+      {reanalyzeError && <p className="error small" role="alert">{reanalyzeError}</p>}
       <div className="next-buttons">
-        <button type="button" className="btn-secondary" onClick={startEdit}>분석 결과 수정</button>
+        <span className="next-left">
+          <button type="button" className="btn-secondary" disabled={reanalyzing} onClick={startEdit}>분석 결과 수정</button>
+          <button type="button" className="btn-secondary" disabled={reanalyzing} onClick={onRerun}>
+            {reanalyzing ? 'AI 다시 분석 중…' : '🔄 AI 재분석'}
+          </button>
+        </span>
         <button type="button" className="btn-primary" disabled={finalizing || result.stale} onClick={onFinalize}>
           {finalizing ? '확정 중…' : '회의 분석 확정'}
         </button>
@@ -358,6 +373,7 @@ interface ViewProps {
   onActionUpdated: (a: ActionView) => void
   onSpeakerSaved: (list: SpeakerList) => void
   onReanalyze: () => void
+  onRerun: () => void
   reanalyzing: boolean
   reanalyzeError?: string
   onFinalize: () => void
@@ -368,7 +384,7 @@ interface ViewProps {
   onAdopt: (index: number, input: AdoptInput) => Promise<void>
 }
 
-export default function AnalysisView({ result, onActionUpdated, onSpeakerSaved, onReanalyze, reanalyzing, reanalyzeError, onFinalize, finalizing, finalizeError, onNextMeeting, onMeetingList, onAdopt }: ViewProps) {
+export default function AnalysisView({ result, onActionUpdated, onSpeakerSaved, onReanalyze, onRerun, reanalyzing, reanalyzeError, onFinalize, finalizing, finalizeError, onNextMeeting, onMeetingList, onAdopt }: ViewProps) {
   return (
     <>
       {result.stale && <StaleBanner onReanalyze={onReanalyze} busy={reanalyzing} error={reanalyzeError} />}
@@ -393,7 +409,8 @@ export default function AnalysisView({ result, onActionUpdated, onSpeakerSaved, 
       </div>
       {/* 다음 단계는 stale 흐림 영역 밖에 둔다: stale이어도 안내(재분석 필요)를 보여 주고 확정만 막는다. */}
       <NextSteps result={result} onFinalize={onFinalize} finalizing={finalizing} finalizeError={finalizeError}
-        onReanalyze={onReanalyze} reanalyzing={reanalyzing} onNextMeeting={onNextMeeting} onMeetingList={onMeetingList} />
+        onReanalyze={onReanalyze} onRerun={onRerun} reanalyzing={reanalyzing} reanalyzeError={reanalyzeError}
+        onNextMeeting={onNextMeeting} onMeetingList={onMeetingList} />
     </>
   )
 }

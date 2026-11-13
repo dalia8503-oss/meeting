@@ -278,3 +278,6 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .adopt-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .adopt-form p { margin: 0; }
 .adopt-buttons { display: flex; justify-content: flex-end; gap: 12px; align-items: center; }
+
+.next-left { display: flex; gap: 10px; flex-wrap: wrap; }
+@media (max-width: 600px) { .next-left { flex-direction: column; } .next-left button { width: 100%; } }

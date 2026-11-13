@@ -51,9 +51,9 @@ _CHUNK = 1 << 20
 class ApiError(Exception):
     """사용자에게 보여도 안전한 오류. 내부 예외 메시지·경로는 담지 않는다."""
 
-    def __init__(self, status: int, code: str, message: str):
+    def __init__(self, status: int, code: str, message: str, extra: Optional[dict] = None):
         super().__init__(code)
-        self.status, self.code, self.message = status, code, message
+        self.status, self.code, self.message, self.extra = status, code, message, extra
 
 
 def _gemini_key_ok() -> bool:
@@ -214,23 +214,46 @@ def _assert_unreferenced(mid: str, meetings: Path, actions: list, error: ApiErro
     return own_action_ids
 
 
-def delete_meeting(meeting_id: str) -> MeetingDeleted:
-    """회의 1건과 그 회의에 속한 산출물(녹음·메타·transcript·분석·run·followups·브리핑·원천 Action)을 삭제한다.
-    다른 회의의 Follow-up/이전 회의 선택/Action 이력이 이 회의를 참조하면 409로 막고 아무것도 지우지 않는다."""
-    mid, root, meta_path, _, _ = _paths(meeting_id)
+def _reference_graph(root: Path, actions: list) -> dict:
+    """회의 사이의 참조 관계(무방향): 이전 회의 선택, 다른 회의 Action에 남은 점검 이력·근거, Follow-up 기록."""
     meetings = root / "meetings"
-    if not meta_path.is_file():
-        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
-    with _running_lock:
-        if mid in _running:
-            raise ApiError(409, "meeting_busy", "분석 중인 회의는 삭제할 수 없습니다.")
+    ids = {p.name[: -len(".meta.json")] for p in meetings.glob("*.meta.json")}
+    graph: dict = {i: set() for i in ids}
 
-    # 1) 참조 검사 — 삭제 전에 전부 끝낸다.
-    actions_path = root / "actions" / "actions.json"
-    actions = ActionStore(actions_path)._read() if actions_path.is_file() else []
-    own_action_ids = _assert_unreferenced(mid, meetings, actions, _REFERENCED)
+    def link(x, y):
+        if x in ids and y in ids and x != y:
+            graph[x].add(y)
+            graph[y].add(x)
 
-    # 2) 브리핑 산출물: 기록의 previous_meeting_id로 이 회의 것임이 확인된 것만. 판단 불가하면 삭제하지 않는다.
+    for a in actions:
+        owner = a.get("meeting_id")
+        for other in _meeting_ids_in(a, set()):
+            link(owner, other)
+    for mid in ids:
+        for suffix in (".run.json", ".followups.json"):
+            path = meetings / f"{mid}{suffix}"
+            if path.is_file():
+                for other in ids - {mid}:
+                    if _mentions(path, (json.dumps(other), json.dumps(other, ensure_ascii=False))):
+                        link(mid, other)
+    return graph
+
+
+def _connected_meetings(mid: str, root: Path, actions: list) -> list:
+    """mid와 (참조로) 연결된 모든 회의 id. mid가 맨 앞이다."""
+    graph = _reference_graph(root, actions)
+    seen, stack = [mid], [mid]
+    while stack:
+        for nxt in sorted(graph.get(stack.pop(), ())):
+            if nxt not in seen:
+                seen.append(nxt)
+                stack.append(nxt)
+    return seen
+
+
+def _delete_targets(mid: str, root: Path) -> list:
+    """이 회의에 속한 파일 목록. 브리핑은 기록의 previous_meeting_id로 이 회의 것임이 확인된 것만, 판단 불가하면 중단한다."""
+    meetings = root / "meetings"
     targets = []
     bdir = root / "briefings"
     if bdir.is_dir():
@@ -243,12 +266,17 @@ def delete_meeting(meeting_id: str) -> MeetingDeleted:
                     raise ApiError(409, "briefing_unclear", "연결된 브리핑을 확인할 수 없어 삭제하지 않았습니다.") from None
             if owner == mid:
                 targets += [rec_path, rec_path.with_suffix(".wav")]
-
-    # 3) 삭제. meta.json은 마지막에 지워, 중간 실패 시에도 목록에 남아 다시 시도할 수 있게 한다.
     targets += [root / "audio" / f"{mid}{e}" for e in _AUDIO_EXTS]
     targets.append(_transcript_path(root, mid))
     targets += [meetings / f"{mid}{s}" for s in _MEETING_FILE_SUFFIXES if s != ".meta.json"]
-    if own_action_ids:
+    return targets
+
+
+def _remove_meeting(mid: str, root: Path, targets: list) -> None:
+    """meta.json은 마지막에 지워, 중간 실패 시에도 목록에 남아 다시 시도할 수 있게 한다."""
+    meetings = root / "meetings"
+    actions_path = root / "actions" / "actions.json"
+    if actions_path.is_file():
         ActionStore(actions_path).remove_by_meeting(mid)
     for p in targets:
         if p.is_file() and _inside(root, p):
@@ -256,8 +284,53 @@ def delete_meeting(meeting_id: str) -> MeetingDeleted:
     for tmp in meetings.glob(f"{mid}.*.tmp"):
         if _inside(root, tmp) and tmp.name.startswith(f"{mid}."):
             tmp.unlink()
-    meta_path.unlink()
-    return MeetingDeleted(deleted=True, meeting_id=mid)
+    (meetings / f"{mid}.meta.json").unlink()
+
+
+def _related_summary(root: Path, ids: list, actions: list) -> list:
+    counts: dict = {}
+    for a in actions:
+        counts[a["meeting_id"]] = counts.get(a["meeting_id"], 0) + 1
+    out = []
+    for i in ids:
+        try:
+            meta = _read_json(root / "meetings" / f"{i}.meta.json")
+            out.append({"meeting_id": i, "title": meta.get("title", i), "meeting_date": meta.get("meeting_date", ""),
+                        "action_count": counts.get(i, 0)})
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def delete_meeting(meeting_id: str, cascade: bool = False) -> MeetingDeleted:
+    """회의 1건과 그 회의에 속한 산출물(녹음·메타·transcript·분석·run·followups·브리핑·원천 Action)을 삭제한다.
+    다른 회의의 Follow-up/이전 회의 선택/Action 이력이 이 회의를 참조하면 409로 막고 아무것도 지우지 않는다.
+    이때 응답에 연결된 회의 목록(related)을 담아 주며, 사용자가 확인한 뒤 cascade=True로 다시 요청하면
+    연결된 회의 전체를 함께 삭제한다 (서로 물려 있어 한 건씩은 지울 수 없는 시험·오등록 데이터 정리용)."""
+    mid, root, meta_path, _, _ = _paths(meeting_id)
+    if not meta_path.is_file():
+        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
+    actions_path = root / "actions" / "actions.json"
+    actions = ActionStore(actions_path)._read() if actions_path.is_file() else []
+
+    try:
+        _assert_unreferenced(mid, root / "meetings", actions, _REFERENCED)
+        referenced = False
+    except ApiError:
+        referenced = True
+
+    if referenced and not cascade:
+        related = _related_summary(root, _connected_meetings(mid, root, actions)[1:], actions)
+        raise ApiError(409, "meeting_referenced", _REFERENCED.message, {"related": related})
+
+    group = _connected_meetings(mid, root, actions) if referenced else [mid]
+    with _running_lock:
+        if any(g in _running for g in group):
+            raise ApiError(409, "meeting_busy", "분석 중인 회의는 삭제할 수 없습니다.")
+    plan = {g: _delete_targets(g, root) for g in group}  # 판단 불가 항목이 있으면 아무것도 지우기 전에 중단된다
+    for g in reversed(group):
+        _remove_meeting(g, root, plan[g])
+    return MeetingDeleted(deleted=True, meeting_id=mid, also_deleted=group[1:])
 
 
 # ---------------------------------------------------------------- analyze (orchestration only)
@@ -816,8 +889,10 @@ _REANALYSIS_BLOCKED = ApiError(
     "이 회의의 분석 결과가 다른 회의 또는 사람의 검토에 이미 사용되어 자동으로 다시 분석할 수 없습니다. 기존 결과는 변경하지 않았습니다.")
 
 
-def reanalyze_meeting(meeting_id: str) -> AnalysisResult:
+def reanalyze_meeting(meeting_id: str, force: bool = False) -> AnalysisResult:
     """화자가 바뀌어 stale이 된 분석을 사용자가 명시적으로 다시 실행한다 (자동 재분석 없음).
+    force=True면 stale이 아니어도(AI 결과가 마음에 들지 않을 때 등) 같은 녹취·같은 화자 확인으로 AI 분석만 다시 한다.
+    녹음 변환(STT)은 다시 하지 않는다 (원본 녹취록은 불변). 새 결과가 나오면 이전 '분석 확정'은 해제된다.
     원본 audio·transcript·STT 라벨은 건드리지 않고, 이 회의의 파생 산출물(분석·검증·실행 기록·이 회의 원천 Action)만 교체한다.
     fail-closed: 다른 회의가 이 결과를 참조했거나 사람이 이 회의 Action을 검토했다면 아무것도 지우지 않고 거부한다.
     재분석이 실패하면 기존 산출물을 복원한다."""
@@ -827,7 +902,7 @@ def reanalyze_meeting(meeting_id: str) -> AnalysisResult:
     run_path = _run_path(root, mid)
     if not run_path.is_file():
         raise ApiError(409, "not_analyzed", "아직 분석되지 않은 회의입니다.")
-    if not _is_stale(root, mid):
+    if not force and not _is_stale(root, mid):
         raise ApiError(409, "not_stale", "화자 변경이 없어 재분석이 필요하지 않습니다.")
     with _reanalyze_lock:
         with _running_lock:
@@ -851,7 +926,12 @@ def reanalyze_meeting(meeting_id: str) -> AnalysisResult:
         if own:
             ActionStore(actions_path).remove_by_meeting(mid)
         try:
-            return analyze_meeting(mid, previous)
+            analyze_meeting(mid, previous)
+            meta = _read_json(meta_path)
+            if meta.pop("analysis_finalized", None) is not None:  # 새 분석 결과는 사람이 다시 확인·확정해야 한다
+                meta.pop("analysis_finalized_at", None)
+                _write_json_atomic(meta_path, meta)
+            return _build_result(mid, root)
         except BaseException:
             for p in [meetings / f"{mid}{s}" for s in _DERIVED_SUFFIXES]:
                 p.unlink(missing_ok=True)

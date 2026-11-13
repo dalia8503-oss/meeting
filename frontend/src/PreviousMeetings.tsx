@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { deleteMeeting, type MeetingSummary } from './api'
+import { deleteMeeting, MeetingReferencedError, type MeetingSummary } from './api'
 
 export type MeetingsLoad =
   | { s: 'loading' }
@@ -32,8 +32,25 @@ export default function PreviousMeetings({ load, selected, onChange, onDeleted, 
     setDeleting(m.meeting_id)
     setDeleteError(null)
     try {
-      await deleteMeeting(m.meeting_id)
+      let also: string[] = []
+      try {
+        also = await deleteMeeting(m.meeting_id)
+      } catch (err) {
+        if (!(err instanceof MeetingReferencedError)) throw err
+        // 다른 회의와 서로 연결돼 있다: 함께 삭제될 회의를 보여 주고, 사용자가 동의한 경우에만 연결 회의까지 삭제한다.
+        const list = err.related
+          .map((r) => `- ${r.meeting_date.replaceAll('-', '.')} ${r.title} (Action ${r.action_count}건)`)
+          .join('\n')
+        const ok = window.confirm(
+          `"${m.title}" 회의는 아래 회의와 서로 연결되어(이전 회의 선택·이행점검 기록) 단독으로 삭제할 수 없습니다.\n\n` +
+            `함께 삭제될 회의 ${err.related.length}건:\n${list}\n\n` +
+            '연결된 회의의 분석 결과·Action·이행점검 기록이 모두 삭제되며 되돌릴 수 없습니다. 계속할까요?',
+        )
+        if (!ok) return
+        also = await deleteMeeting(m.meeting_id, true)
+      }
       onDeleted(m.meeting_id)
+      also.forEach(onDeleted)
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : '회의를 삭제하지 못했습니다.')
     } finally {

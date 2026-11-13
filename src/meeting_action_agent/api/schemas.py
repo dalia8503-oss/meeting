@@ -29,6 +29,7 @@ class MeetingSummary(BaseModel):
 class MeetingDeleted(BaseModel):
     deleted: bool
     meeting_id: str
+    also_deleted: List[str] = []        # 연결된 회의를 함께 삭제한 경우 그 회의 id
 
 
 class MeetingList(BaseModel):
@@ -210,6 +211,11 @@ class AnalysisResult(BaseModel):
     # 확정은 화면 흐름 표시일 뿐이며 Action 상태·Reviewer 판정·완료 승인에는 영향을 주지 않는다.
     analysis_finalized: bool = False
     analysis_finalized_at: Optional[str] = None
+
+
+class ReanalyzeRequest(BaseModel):
+    """force=true: 화자 변경(stale)이 없어도 AI 분석을 다시 실행한다. 본문이 없으면 stale일 때만 허용된다."""
+    force: bool = False
 
 
 class AdoptRequest(BaseModel):
