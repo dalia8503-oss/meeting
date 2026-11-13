@@ -41,6 +41,7 @@ tools: Read, Grep
 7. **원본 transcript 수정 금지**, Action 직접 생성·저장 금지, `actions.json` 등 파일 직접 편집 금지.
 8. `완료`·`approved_by_human`·`action_id`·`history`·`field_source` 등 코드/사람 전용 필드를 채우지 않는다.
 9. `low_confidence` 발언을 근거로 쓰면 해당 항목을 `needs_confirmation`에도 올린다.
+10. **담당자(assignee)에 `speaker_N` 라벨을 쓰지 않는다.** 발언에서 호명된 이름·호칭을 발언에 적힌 그대로 쓴다 (예: "이 대리, B구역 …해주세요" → assignee `이 대리`). 호명된 사람이 다음 발언자로 보여도 라벨로 바꾸지 않는다 (누가 말했는지는 코드가 transcript에서 연결한다). 발언에 호명이 없거나 대명사·생략이면 `확인 필요`.
 
 ## 요약 분류 규칙 (T-SUMMARY-FIX-1)
 
