@@ -6,8 +6,8 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import briefing_service, service
 from .schemas import (
-    ActionView, AnalysisResult, AnalyzeRequest, BriefingRequest, BriefingResponse, HealthResponse, MeetingCreated, MeetingDeleted, MeetingList, ReviewRequest,
-    SpeakerList, SpeakerMapRequest, WithdrawRequest)
+    ActionView, AdoptRequest, AnalysisResult, AnalyzeRequest, BriefingRequest, BriefingResponse, HealthResponse, MeetingCreated, MeetingDeleted, MeetingList, ReviewRequest,
+    SpeakerList, SpeakerMapRequest, SpeakerSuggestionList, WithdrawRequest)
 
 router = APIRouter(prefix="/api")
 log = logging.getLogger(__name__)
@@ -97,6 +97,42 @@ def put_speaker_map(meeting_id: str, body: SpeakerMapRequest):
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 
+# AI 1차 추천 (추정값). 확정 speaker_map은 바꾸지 않는다.
+@router.post("/meetings/{meeting_id}/speaker-suggestions", response_model=SpeakerSuggestionList)
+def post_speaker_suggestions(meeting_id: str):
+    try:
+        return service.suggest_speakers(meeting_id)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("speaker suggestion failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+# Reviewer가 제외한 후보를 사람이 Action으로 채택한다 (사람의 명시적 결정). Reviewer 판정 기록은 바뀌지 않는다.
+@router.post("/meetings/{meeting_id}/rejected/{index}/adopt", response_model=AnalysisResult)
+def adopt_rejected(meeting_id: str, index: int, body: AdoptRequest):
+    try:
+        return service.adopt_rejected(meeting_id, index, body.actor_name, body.assignees, body.assigner)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("rejected adoption failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+# 분석 후 화자가 바뀌어 stale이 된 분석을 사용자가 명시적으로 다시 실행한다.
+@router.post("/meetings/{meeting_id}/reanalyze", response_model=AnalysisResult)
+def reanalyze_meeting(meeting_id: str):
+    try:
+        return service.reanalyze_meeting(meeting_id)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("meeting reanalysis failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
 # meeting_id만 URL로 받는다. mode/provider/model은 서버 설정(MAA_MODE, 환경변수)만 따른다.
 @router.post("/meetings/{meeting_id}/analyze", response_model=AnalysisResult)
 def analyze_meeting(meeting_id: str, body: Optional[AnalyzeRequest] = Body(None)):
@@ -106,6 +142,18 @@ def analyze_meeting(meeting_id: str, body: Optional[AnalyzeRequest] = Body(None)
         return _error(e.status, e.code, e.message)
     except Exception:
         log.exception("meeting analysis failed")
+        return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+
+
+# 사람이 분석 결과를 확정한다 (Action 0건이어도 가능). Action·Reviewer 판정은 바뀌지 않는다.
+@router.post("/meetings/{meeting_id}/finalize", response_model=AnalysisResult)
+def finalize_analysis(meeting_id: str):
+    try:
+        return service.finalize_analysis(meeting_id)
+    except service.ApiError as e:
+        return _error(e.status, e.code, e.message)
+    except Exception:
+        log.exception("analysis finalize failed")
         return _error(500, "internal_error", "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
 
 

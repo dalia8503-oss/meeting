@@ -171,7 +171,7 @@ def test_second_meeting_with_previous_ids_runs_multi_agent(client, base, first, 
     fr = b["followup_results"]
     assert [(f["action_id"], f["outcome"], f["from_status"], f["to_status"], f["reviewer_verdict"]) for f in fr] == \
         [("A-001", "applied", "신규", "완료 후보", "PASS")]
-    assert fr[0]["evidence"] == [{"timestamp": "00:00:10", "speaker": "김대리", "speaker_name": None, "text": DONE_TEXT}]
+    assert fr[0]["evidence"] == [{"timestamp": "00:00:10", "speaker": "김대리", "speaker_name": None, "speaker_display": None, "text": DONE_TEXT}]
     # 7, 10, 11. 신규 Action: A-002만. proposal(품질 문제)은 Action이 아니다
     assert [(a["action_id"], a["assignee"], a["status"]) for a in b["new_actions"]] == [("A-002", "박대리", "신규")]
     assert len(b["rejected"]) == 1 and b["rejected"][0]["evidence"] == PROPOSAL

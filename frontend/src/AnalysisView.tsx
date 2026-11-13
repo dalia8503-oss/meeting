@@ -1,7 +1,9 @@
 import { Fragment, useState } from 'react'
-import type { ActionView, AnalysisResult, SummaryItem } from './api'
+import type { ActionView, AnalysisResult, SpeakerList, SummaryItem } from './api'
 import { CollabPanel, FollowupPanel, ApprovalInfo } from './FollowupView'
 import { StatusBadge } from './StatusBadge'
+import { StaleBanner, TranscriptPanel } from './TranscriptView'
+import { RejectedList, type AdoptInput } from './AdoptRejected'
 
 const STEPS = ['음성 업로드', 'STT', '회의 분석', 'Reviewer', 'Action 생성']
 
@@ -65,7 +67,8 @@ function ActionRow({ a, meetingId }: { a: ActionView; meetingId: string }) {
           <StatusBadge status={a.status} />
           <ApprovalInfo a={a} />
         </td>
-        <td className="c-assignee">{a.assignee || <span className="muted">미지정</span>}</td>
+        <td className="c-assignee">{a.assignee ? (a.assignee_display ?? a.assignee) : <span className="muted">미지정</span>}
+          {a.assigner && <div className="muted tiny">지시: {a.assigner_display ?? a.assigner}</div>}</td>
         <td className="c-task">
           {a.task}
           <div className={`origin ${a.meeting_id === meetingId ? 'origin-new' : 'origin-prev'}`}>
@@ -91,7 +94,7 @@ function ActionRow({ a, meetingId }: { a: ActionView; meetingId: string }) {
                 {a.evidence.speaker && (
                   <span className="ev-speaker">
                     {a.evidence.speaker}
-                    {a.evidence.speaker_name ? ` · ${a.evidence.speaker_name}` : ''}
+                    {a.evidence.speaker_display ?? a.evidence.speaker_name ? ` · ${a.evidence.speaker_display ?? a.evidence.speaker_name}` : ''}
                   </span>
                 )}
               </div>
@@ -104,7 +107,17 @@ function ActionRow({ a, meetingId }: { a: ActionView; meetingId: string }) {
   )
 }
 
-function ActionList({ actions, meetingId }: { actions: ActionView[]; meetingId: string }) {
+/** 접힌 <details>를 열고 그 위치로 이동한다 (사용자가 직접 열고 닫는 기존 동작은 그대로 둔다). */
+function openDetails(id: string) {
+  const el = document.getElementById(id) as HTMLDetailsElement | null
+  if (!el) return
+  el.open = true
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+export function ActionList({ actions, meetingId, rejectedCount, showNoActionNote }: {
+  actions: ActionView[]; meetingId: string; rejectedCount: number; showNoActionNote: boolean
+}) {
   return (
     <section className="panel action-panel" aria-label="Action List">
       <div className="panel-head">
@@ -112,7 +125,15 @@ function ActionList({ actions, meetingId }: { actions: ActionView[]; meetingId: 
         <span className="count">총 {actions.length}건</span>
       </div>
       {actions.length === 0 ? (
-        <p className="empty">이번 회의에서 등록할 Action이 없습니다.</p>
+        <div className="empty">
+          <p className="empty-main">이번 회의에서 등록할 Action이 없습니다.</p>
+          {showNoActionNote && <p className="small">Reviewer 검증 결과 Action으로 확정된 항목이 없습니다.</p>}
+          {rejectedCount > 0 && (
+            <button type="button" className="btn-link small" onClick={() => openDetails('ai-verification')}>
+              제외된 후보 {rejectedCount}건 보기
+            </button>
+          )}
+        </div>
       ) : (
         <div className="table-wrap">
           <table className="action-table">
@@ -169,7 +190,7 @@ function ResultHeader({ result }: { result: AnalysisResult }) {
   )
 }
 
-function NeedsConfirmation({ items }: { items: SummaryItem[] }) {
+export function NeedsConfirmation({ items }: { items: SummaryItem[] }) {
   if (items.length === 0) return <p className="muted small none-note">확인 필요 없음</p>
   return (
     <section className="panel confirm-panel" aria-label="확인 필요">
@@ -188,7 +209,7 @@ function NeedsConfirmation({ items }: { items: SummaryItem[] }) {
   )
 }
 
-function Box({ cls, title, sub, items, mark, empty }: {
+export function Box({ cls, title, sub, items, mark, empty }: {
   cls: string; title: string; sub: string; items: SummaryItem[]; mark: string; empty: string
 }) {
   return (
@@ -200,7 +221,7 @@ function Box({ cls, title, sub, items, mark, empty }: {
   )
 }
 
-function Summary({ items }: { items: SummaryItem[] }) {
+export function Summary({ items }: { items: SummaryItem[] }) {
   return (
     <section className="panel" aria-label="회의 요약">
       <h3 className="panel-title">📝 회의 요약</h3>
@@ -213,9 +234,13 @@ function Summary({ items }: { items: SummaryItem[] }) {
   )
 }
 
-function AiVerification({ rejected }: { rejected: AnalysisResult['rejected'] }) {
+function AiVerification({ rejected, onAdopt, disabled }: {
+  rejected: AnalysisResult['rejected']
+  onAdopt: (index: number, input: AdoptInput) => Promise<void>
+  disabled: boolean
+}) {
   return (
-    <details className="panel ai-info">
+    <details id="ai-verification" className="panel ai-info">
       <summary>
         AI 검증 정보 <span className="muted small">· Reviewer에서 제외된 항목 {rejected.length}건</span>
       </summary>
@@ -223,37 +248,152 @@ function AiVerification({ rejected }: { rejected: AnalysisResult['rejected'] }) 
         <p className="muted small">제외된 항목이 없습니다.</p>
       ) : (
         <>
-          <p className="muted small">근거가 확인되지 않아 Action으로 등록하지 않은 후보입니다.</p>
-          <ul className="items">
-            {rejected.map((r, i) => (
-              <li key={i}>
-                {r.task} <span className="muted tiny">[{r.timestamp}] {r.assignee}</span>
-              </li>
-            ))}
-          </ul>
+          <p className="muted small">
+            근거가 확인되지 않아 Action으로 등록하지 않은 후보입니다. 사람이 근거를 확인했다면 직접 Action으로 채택할 수 있습니다.
+          </p>
+          <RejectedList rejected={rejected} onAdopt={onAdopt} disabled={disabled} />
         </>
       )}
     </details>
   )
 }
 
-export default function AnalysisView({ result, onActionUpdated }: { result: AnalysisResult; onActionUpdated: (a: ActionView) => void }) {
+interface NextStepsProps {
+  result: AnalysisResult
+  onFinalize: () => void
+  finalizing: boolean
+  finalizeError?: string
+  onReanalyze: () => void
+  reanalyzing: boolean
+  onNextMeeting: () => void
+  onMeetingList: () => void
+}
+
+/**
+ * 분석 완료 후 "다음 단계". Action 0건이어도 확정할 수 있다 (Action 0건은 오류가 아니다).
+ * 확정은 사람이 결과를 확인했다는 표시일 뿐이며 Reviewer 판정·Action 상태를 바꾸지 않는다.
+ */
+function NextSteps({ result, onFinalize, finalizing, finalizeError, onReanalyze, reanalyzing, onNextMeeting, onMeetingList }: NextStepsProps) {
+  const [editing, setEditing] = useState(false)
+  const rejected = result.rejected.length
+  const finalized = !!result.analysis_finalized && !result.stale
+
+  if (finalized) {
+    return (
+      <section className="panel next-steps next-done" aria-label="다음 단계">
+        <h3 className="panel-title next-title">
+          <span className="next-check" aria-hidden="true">✓</span> 회의 분석이 확정되었습니다.
+        </h3>
+        <p className="small next-desc">다음 작업을 선택하세요.</p>
+        <div className="next-choices">
+          <div className="next-choice">
+            <button type="button" className="btn-primary" onClick={onNextMeeting}>다음 회의 등록</button>
+            <span className="muted small">후속 회의에서 이전 Action의 이행 여부를 추적합니다.</span>
+          </div>
+          <div className="next-choice">
+            <button type="button" className="btn-secondary" onClick={onMeetingList}>회의 목록으로</button>
+            <span className="muted small">저장된 회의와 분석 결과를 확인합니다.</span>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  const startEdit = () => {
+    setEditing(true)
+    openDetails('speaker-roster')
+  }
+
+  return (
+    <section className="panel next-steps" aria-label="다음 단계">
+      <h3 className="panel-title next-title">다음 단계</h3>
+      <p className="small next-desc">현재 회의 분석이 완료되었습니다.</p>
+      {rejected > 0 && (
+        <p className="small next-desc">
+          Reviewer가 Action 후보 {rejected}건을 제외했습니다.
+          <br />
+          필요하면 검증 내용을 확인하거나 분석 결과를 수정할 수 있습니다.
+        </p>
+      )}
+      {result.actions.length === 0 && (
+        <p className="muted small next-desc">Action이 없어도 정상적인 분석 결과일 수 있으며, 그대로 확정할 수 있습니다.</p>
+      )}
+      {result.stale && (
+        <p className="small next-stale" role="status">
+          화자 정보가 변경되어 재분석 후에 확정할 수 있습니다.{' '}
+          <button type="button" className="btn-link" disabled={reanalyzing} onClick={onReanalyze}>
+            {reanalyzing ? '다시 분석 중…' : '변경된 화자로 다시 분석'}
+          </button>
+        </p>
+      )}
+      {editing && !result.stale && (
+        <div className="next-edit" aria-label="분석 결과 수정 안내">
+          <p className="small"><strong>분석 결과 수정</strong> · 원본 녹취는 바뀌지 않고 화자 정보만 수정됩니다.</p>
+          <ol className="small next-edit-list">
+            <li>
+              화자 정보 수정 — 녹취 전문에서 ✎를 눌러 이름·부/과를 고칩니다.{' '}
+              <button type="button" className="btn-link" onClick={() => openDetails('transcript-panel')}>녹취 전문 열기</button>
+            </li>
+            <li>
+              Reviewer 제외 항목 확인 — 확인만 할 수 있으며 제외 결과를 승인(PASS)으로 바꿀 수는 없습니다.{' '}
+              <button type="button" className="btn-link" onClick={() => openDetails('ai-verification')}>제외 항목 {rejected}건 보기</button>
+            </li>
+            <li>화자 이름이 바뀌면 재분석 안내가 나타납니다. 자동으로 다시 분석하지 않습니다.</li>
+          </ol>
+        </div>
+      )}
+      {finalizeError && <p className="error small" role="alert">{finalizeError}</p>}
+      <div className="next-buttons">
+        <button type="button" className="btn-secondary" onClick={startEdit}>분석 결과 수정</button>
+        <button type="button" className="btn-primary" disabled={finalizing || result.stale} onClick={onFinalize}>
+          {finalizing ? '확정 중…' : '회의 분석 확정'}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+interface ViewProps {
+  result: AnalysisResult
+  onActionUpdated: (a: ActionView) => void
+  onSpeakerSaved: (list: SpeakerList) => void
+  onReanalyze: () => void
+  reanalyzing: boolean
+  reanalyzeError?: string
+  onFinalize: () => void
+  finalizing: boolean
+  finalizeError?: string
+  onNextMeeting: () => void
+  onMeetingList: () => void
+  onAdopt: (index: number, input: AdoptInput) => Promise<void>
+}
+
+export default function AnalysisView({ result, onActionUpdated, onSpeakerSaved, onReanalyze, reanalyzing, reanalyzeError, onFinalize, finalizing, finalizeError, onNextMeeting, onMeetingList, onAdopt }: ViewProps) {
   return (
     <>
+      {result.stale && <StaleBanner onReanalyze={onReanalyze} busy={reanalyzing} error={reanalyzeError} />}
+      <TranscriptPanel result={result} onSaved={onSpeakerSaved} />
+      {/* stale 결과는 최신 결과처럼 보이거나 조작되지 않도록 흐리게 표시하고 클릭을 막는다 (서버도 stale 승인을 거부한다). */}
+      <div className={result.stale ? 'stale-result' : undefined} aria-disabled={result.stale || undefined}>
       <ResultHeader result={result} />
       <CollabPanel result={result} />
       <FollowupPanel result={result} onUpdated={onActionUpdated} />
       {result.new_actions_error && (
         <p className="error" role="alert">신규 Action 추출 중 문제가 발생했습니다. 이전 지시 이행점검 결과는 유지되었습니다.</p>
       )}
-      <ActionList actions={result.actions} meetingId={result.meeting_id} />
+      <ActionList actions={result.actions} meetingId={result.meeting_id} rejectedCount={result.rejected.length}
+        showNoActionNote={!result.new_actions_error} />
       <NeedsConfirmation items={result.needs_confirmation} />
       <div className="two-col">
         <Box cls="decision" title="✓ 결정사항" sub="회의에서 확정된 내용" items={result.decisions} mark="✓" empty="확정된 결정사항이 없습니다." />
         <Box cls="open" title="◌ 미결사항" sub="추가 논의 또는 확인이 필요한 내용" items={result.open_issues} mark="◌" empty="남은 미결사항이 없습니다." />
       </div>
       <Summary items={result.summary} />
-      <AiVerification rejected={result.rejected} />
+      <AiVerification rejected={result.rejected} onAdopt={onAdopt} disabled={result.stale} />
+      </div>
+      {/* 다음 단계는 stale 흐림 영역 밖에 둔다: stale이어도 안내(재분석 필요)를 보여 주고 확정만 막는다. */}
+      <NextSteps result={result} onFinalize={onFinalize} finalizing={finalizing} finalizeError={finalizeError}
+        onReanalyze={onReanalyze} reanalyzing={reanalyzing} onNextMeeting={onNextMeeting} onMeetingList={onMeetingList} />
     </>
   )
 }

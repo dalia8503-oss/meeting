@@ -1,25 +1,34 @@
+import copy
 import datetime
 import hashlib
 import json
+import logging
 import os
+import re
 import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
 
-from ..analyst import AnalysisValidationError, save_analysis
+from ..analyst import AnalysisValidationError, relink_utterance, save_analysis
+from ..contracts import SchemaValidationError
+from ..manager import ConversionContextError, convert_candidate
 from ..audio_pipeline import prepare_transcript, run_audio_pipeline
 from ..ingest import IngestError, ingest_audio, safe_meeting_id
 from ..review import review_action, withdraw_completion
 from ..reviewer import ReviewOutputError
 from ..state import CompletionGuardError, TransitionError
 from ..stt import SttError, TranscriptError
-from ..speakers import SpeakerMapError, confirmed_names, list_speakers, validate_speaker_map
+from ..speaker_identifier import SpeakerSuggestionError, confidence_level, identify_speakers
+from ..speakers import (
+    SpeakerMapError, confirmed_names, confirmed_profiles, display_for_person, list_speakers, validate_speaker_map)
 from ..store import ActionStore
 from .mode import get_data_root, get_mode
 from .schemas import (
-    ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingDeleted, MeetingSummary, SpeakerItem, SpeakerList)
+    ActionView, AnalysisResult, HealthResponse, MeetingCreated, MeetingDeleted, MeetingSummary, SpeakerItem, SpeakerList,
+    SpeakerSuggestionList)
 
+log = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 _CHUNK = 1 << 20
 
@@ -116,7 +125,8 @@ def list_meetings() -> list:
 
 # ---------------------------------------------------------------- delete (사용자가 명시한 회의 삭제)
 
-_MEETING_FILE_SUFFIXES = (".meta.json", ".audio.json", ".analysis.json", ".review.json", ".run.json", ".followups.json")
+_MEETING_FILE_SUFFIXES = (".meta.json", ".audio.json", ".analysis.json", ".review.json", ".run.json", ".followups.json",
+                          ".speaker-suggestions.json")
 _AUDIO_EXTS = (".mp3", ".wav", ".m4a")
 _REFERENCED = ApiError(409, "meeting_referenced",
                        "이 회의의 업무가 다른 회의에서 이미 추적되고 있어 삭제할 수 없습니다.")
@@ -152,6 +162,36 @@ def _inside(root: Path, path: Path) -> bool:
         return False
 
 
+def _assert_unreferenced(mid: str, meetings: Path, actions: list, error: ApiError) -> set:
+    """이 회의의 산출물이 다른 회의에서 참조·변경되었으면 error를 던진다 (삭제·재분석 공통). 이 회의의 Action id 집합을 반환."""
+    own_action_ids = {a.get("action_id") for a in actions if a.get("meeting_id") == mid}
+    for a in actions:
+        ids = _meeting_ids_in(a, set())
+        if a.get("meeting_id") == mid:
+            if ids - {mid}:       # 이 회의의 Action이 다른 회의에서 판단·근거가 추가됨
+                raise error
+        elif mid in ids:          # 다른 회의의 Action이 이 회의를 근거로 참조
+            raise error
+    tokens = (json.dumps(mid), json.dumps(mid, ensure_ascii=False))
+    for other in meetings.glob("*.meta.json"):
+        oid = other.name[: -len(".meta.json")]
+        if oid == mid:
+            continue
+        for suffix in (".run.json", ".followups.json"):
+            p = meetings / f"{oid}{suffix}"
+            if p.is_file() and _mentions(p, tokens):  # 이전 회의로 선택됨 / 이 회의 Action의 Follow-up
+                raise error
+        fp = meetings / f"{oid}.followups.json"
+        if own_action_ids and fp.is_file():
+            try:
+                rows = _read_json(fp)
+            except (OSError, ValueError):
+                rows = []
+            if any(isinstance(r, dict) and r.get("action_id") in own_action_ids for r in rows):
+                raise error
+    return own_action_ids
+
+
 def delete_meeting(meeting_id: str) -> MeetingDeleted:
     """회의 1건과 그 회의에 속한 산출물(녹음·메타·transcript·분석·run·followups·브리핑·원천 Action)을 삭제한다.
     다른 회의의 Follow-up/이전 회의 선택/Action 이력이 이 회의를 참조하면 409로 막고 아무것도 지우지 않는다."""
@@ -166,31 +206,7 @@ def delete_meeting(meeting_id: str) -> MeetingDeleted:
     # 1) 참조 검사 — 삭제 전에 전부 끝낸다.
     actions_path = root / "actions" / "actions.json"
     actions = ActionStore(actions_path)._read() if actions_path.is_file() else []
-    own_action_ids = {a.get("action_id") for a in actions if a.get("meeting_id") == mid}
-    for a in actions:
-        ids = _meeting_ids_in(a, set())
-        if a.get("meeting_id") == mid:
-            if ids - {mid}:       # 이 회의의 Action이 다른 회의에서 판단·근거가 추가됨
-                raise _REFERENCED
-        elif mid in ids:          # 다른 회의의 Action이 이 회의를 근거로 참조
-            raise _REFERENCED
-    tokens = (json.dumps(mid), json.dumps(mid, ensure_ascii=False))
-    for other in meetings.glob("*.meta.json"):
-        oid = other.name[: -len(".meta.json")]
-        if oid == mid:
-            continue
-        for suffix in (".run.json", ".followups.json"):
-            p = meetings / f"{oid}{suffix}"
-            if p.is_file() and _mentions(p, tokens):  # 이전 회의로 선택됨 / 이 회의 Action의 Follow-up
-                raise _REFERENCED
-        fp = meetings / f"{oid}.followups.json"
-        if own_action_ids and fp.is_file():
-            try:
-                rows = _read_json(fp)
-            except (OSError, ValueError):
-                rows = []
-            if any(isinstance(r, dict) and r.get("action_id") in own_action_ids for r in rows):
-                raise _REFERENCED
+    own_action_ids = _assert_unreferenced(mid, meetings, actions, _REFERENCED)
 
     # 2) 브리핑 산출물: 기록의 previous_meeting_id로 이 회의 것임이 확인된 것만. 판단 불가하면 삭제하지 않는다.
     targets = []
@@ -286,21 +302,83 @@ def _confirmed_map(root: Path, meeting_id: str) -> dict:
     return confirmed_names(meta.get("speaker_map"))
 
 
+def _profiles(root: Path, meeting_id: str) -> dict:
+    """해당 회의에서 사람이 확인한 {speaker_N: {name, department, section, display_name}} (표시용, 회의 단위)."""
+    try:
+        meta = _read_json(root / "meetings" / f"{safe_meeting_id(meeting_id)}.meta.json")
+    except (OSError, ValueError):
+        return {}
+    return confirmed_profiles(meta.get("speaker_map"))
+
+
 def _action_view(a: dict, root: Path, cache: dict) -> dict:
-    """저장된 Action을 화면용 DTO로 옮긴다. 값은 수정하지 않는다."""
+    """저장된 Action을 화면용 DTO로 옮긴다. 값은 수정하지 않는다 (표시명은 파생 정보)."""
     speaker = _speakers(root, a["meeting_id"], cache).get(a["timestamp"])
+    profiles = _profiles(root, a["meeting_id"])
     return {
+        "assignee_display": display_for_person(a["assignee"], profiles),
+        "assigner_display": display_for_person(a["assigner"], profiles),
         "action_id": a["action_id"], "meeting_id": a["meeting_id"], "status": a["status"],
         "assignee": a["assignee"], "assigner": a["assigner"], "task": a["task"], "due_date": a["due_date"],
         "due_date_normalized": a["due_date_normalized"], "flags": a["flags"],
         "evidence": {"timestamp": a["timestamp"], "speaker": speaker,
-                     "speaker_name": _confirmed_map(root, a["meeting_id"]).get(speaker), "text": a["evidence"]},
+                     "speaker_name": _confirmed_map(root, a["meeting_id"]).get(speaker),
+                     "speaker_display": (profiles.get(speaker) or {}).get("display_name"), "text": a["evidence"]},
         "approved_by_human": a.get("approved_by_human"), "history": a["history"],
     }
 
 
 def _read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json_atomic(path: Path, data) -> None:
+    tmp = path.with_suffix(f".json.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _is_stale(root: Path, mid: str) -> bool:
+    """분석 당시 사용한 확정 화자(run.speaker_map_used)와 현재 확정 화자가 다르면 stale.
+    분석 기록에 사용한 화자 정보가 없으면(구버전 기록) 비교 근거가 없으므로 stale로 단정하지 않는다."""
+    run_path = _run_path(root, mid)
+    if not run_path.is_file():
+        return False
+    try:
+        used = _read_json(run_path).get("speaker_map_used")
+    except (OSError, ValueError):
+        return False
+    return isinstance(used, dict) and used != _confirmed_map(root, mid)
+
+
+def _require_fresh(root: Path, mid: str, message: str) -> None:
+    if _is_stale(root, mid):
+        raise ApiError(409, "analysis_stale", message)
+
+
+def _rejected_views(review: dict, run: dict) -> list:
+    """Reviewer가 제외한 후보 + 제외 사유 + (사람이 채택했다면) 채택 정보. review 기록 자체는 바꾸지 않는다."""
+    reasons: dict = {}
+    for r in review.get("reviews") or []:
+        if r.get("verdict") == "REJECT":
+            reasons.setdefault(r["target"]["ref"], []).extend(
+                f"{x.get('code', '')}: {x.get('detail', '')}".strip(": ") for x in r.get("reasons") or [])
+    adopted = {a["index"]: a for a in run.get("adopted_candidates") or []}
+    return [{"task": c["task"], "assignee": c["assignee"], "assigner": c.get("assigner", ""),
+             "timestamp": c["timestamp"], "evidence": c["evidence"], "index": i,
+             "reasons": reasons.get(c["timestamp"], []),
+             "adopted_action_ids": (adopted.get(i) or {}).get("action_ids", []),
+             "adopted_by": (adopted.get(i) or {}).get("adopted_by")}
+            for i, c in enumerate(review["rejected"])]
+
+
+def _refresh_followup(record: dict, profiles: dict) -> dict:
+    """run.json에 저장된 이행점검 근거의 화자 표시명을 현재 확인된 프로필로 갱신한다 (이름·판단은 그대로, 표시만)."""
+    out = dict(record)
+    out["evidence"] = [{**q, "speaker_name": (profiles.get(q.get("speaker")) or {}).get("name"),
+                        "speaker_display": (profiles.get(q.get("speaker")) or {}).get("display_name")}
+                       for q in record.get("evidence") or []]
+    return out
 
 
 def _build_result(mid: str, root: Path) -> AnalysisResult:
@@ -314,6 +392,8 @@ def _build_result(mid: str, root: Path) -> AnalysisResult:
     transcript = _read_json(root / "transcripts" / "original" / f"{mid}.json")
     all_actions = ActionStore(root / "actions" / "actions.json").load_all()
     cache: dict = {}
+    names = _confirmed_map(root, mid)
+    profiles = _profiles(root, mid)
     mine = [a for a in all_actions if a["meeting_id"] == mid]
     followed = {r["action_id"] for r in run.get("followup_results", [])}
     shown = mine + [a for a in all_actions if a["action_id"] in followed and a["meeting_id"] != mid]
@@ -324,19 +404,108 @@ def _build_result(mid: str, root: Path) -> AnalysisResult:
         open_issues=analysis["open_issues"] if analysis else [],
         needs_confirmation=analysis["needs_confirmation"] if analysis else [],
         actions=[_action_view(a, root, cache) for a in shown],
-        rejected=[{"task": c["task"], "assignee": c["assignee"], "timestamp": c["timestamp"], "evidence": c["evidence"]}
-                  for c in review["rejected"]],
+        rejected=_rejected_views(review, run),
         meeting_analysis=({"summary": analysis["key_discussions"], "decisions": analysis["decisions"],
                            "open_issues": analysis["open_issues"],
                            "needs_confirmation": analysis["needs_confirmation"]} if analysis else None),
         new_actions=[_action_view(a, root, cache) for a in mine],
-        followup_results=run.get("followup_results", []),
+        followup_results=[_refresh_followup(r, profiles) for r in run.get("followup_results", [])],
         followup_invalid=run.get("followup_invalid", []),
         previous_meeting_ids=run.get("previous_meeting_ids", []),
         execution=run.get("execution"),
         new_actions_error=run.get("new_actions_error"),
         followup_error=run.get("followup_error"),
+        transcript=[{"timestamp": u["timestamp"], "speaker": u["speaker"], "speaker_name": names.get(u["speaker"]),
+                     "speaker_display": (profiles.get(u["speaker"]) or {}).get("display_name"),
+                     "speaker_department": (profiles.get(u["speaker"]) or {}).get("department"),
+                     "speaker_section": (profiles.get(u["speaker"]) or {}).get("section"),
+                     "text": u["text"]} for u in transcript],
+        stale=_is_stale(root, mid),
+        speaker_map_used=run.get("speaker_map_used") or {},
+        **_finalized_fields(root, mid),
     )
+
+
+def _finalized_fields(root: Path, mid: str) -> dict:
+    """meta.json의 분석 확정 표시. stale(화자 변경 후 미재분석)이면 확정으로 보이지 않게 한다."""
+    try:
+        meta = _read_json(root / "meetings" / f"{mid}.meta.json")
+    except (OSError, ValueError):
+        return {}
+    if meta.get("analysis_finalized") is True and not _is_stale(root, mid):
+        return {"analysis_finalized": True, "analysis_finalized_at": meta.get("analysis_finalized_at")}
+    return {}
+
+
+_LABEL_OR_UNKNOWN = re.compile(r"^(speaker_\d+|확인 필요|\s*)$")
+
+
+def adopt_rejected(meeting_id: str, index: int, actor_name, assignees=None, assigner=None) -> AnalysisResult:
+    """Reviewer가 제외한 후보를 사람이 Action으로 채택한다 (사람의 명시적 결정).
+
+    - 기존 변환 경로(convert_candidate, reviewer_passed=False)를 그대로 쓴다: Action의 최초 생성 주체는 Agent이고,
+      `Reviewer미통과` 플래그와 사유·채택자가 flag_notes에 남으며, 초기 상태는 기존 규칙대로 '확인 필요'다 (완료·신규로 올리지 않는다).
+    - 사람이 지정·수정한 담당자/지시자는 field_source '사람 보강'으로 기록한다. 담당자가 화자 라벨이면 사람이 반드시 지정해야 한다.
+    - Reviewer 판정 기록(review.json)은 바꾸지 않는다. 채택 사실은 run 기록에 남는다 (같은 후보 중복 채택 불가).
+    - stale 분석에서는 채택할 수 없다. 채택하면 이전 '분석 확정'은 해제된다(Action 목록이 바뀌므로 다시 확정)."""
+    mid, root, meta_path, analysis_path, review_path = _paths(meeting_id)
+    if not meta_path.is_file():
+        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
+    run_path = _run_path(root, mid)
+    if not (run_path.is_file() and review_path.is_file()):
+        raise ApiError(409, "not_analyzed", "아직 분석되지 않은 회의입니다.")
+    _require_fresh(root, mid, "화자 정보가 변경되어 재분석이 필요합니다. 재분석 후 채택해 주세요.")
+    actor = (actor_name or "").strip()
+    if not actor:
+        raise ApiError(422, "invalid_adoption", "채택자 이름을 입력해 주세요.")
+    with _reanalyze_lock:
+        rejected = _read_json(review_path)["rejected"]
+        if not isinstance(index, int) or not 0 <= index < len(rejected):
+            raise ApiError(404, "rejected_not_found", "제외된 후보를 찾을 수 없습니다.")
+        run = _read_json(run_path)
+        adopted = run.setdefault("adopted_candidates", [])
+        if any(a["index"] == index for a in adopted):
+            raise ApiError(409, "already_adopted", "이미 Action으로 채택한 후보입니다.")
+        cand = copy.deepcopy(rejected[index])
+        names = list(dict.fromkeys(n.strip() for n in (assignees or []) if isinstance(n, str) and n.strip()))
+        if not names:
+            if _LABEL_OR_UNKNOWN.match(cand["assignee"]):
+                raise ApiError(422, "assignee_required", "담당자가 화자 라벨이거나 확인되지 않은 후보입니다. 담당자를 직접 지정해 주세요.")
+            names = [cand["assignee"]]
+        human_fields = {}
+        if names != [cand["assignee"]]:
+            human_fields["assignee"] = "사람 보강"
+        new_assigner = (assigner or "").strip()
+        if new_assigner and new_assigner != cand["assigner"]:
+            cand["assigner"] = new_assigner
+            human_fields["assigner"] = "사람 보강"
+        cand["assignee"] = names[0]
+        cand["status"] = "신규"
+        reasons = _rejected_views(_read_json(review_path), {})[index]["reasons"]
+        if "Reviewer미통과" not in cand["flags"]:
+            cand["flags"] = [*cand["flags"], "Reviewer미통과"]
+        cand["flag_notes"] = {**(cand.get("flag_notes") or {}), "Reviewer미통과": {
+            "note": f"Reviewer가 제외한 후보를 사람이 Action으로 채택함 (채택자: {actor})"
+                    + (f". 제외 사유: {'; '.join(reasons)}" if reasons else "")}}
+        meta = _read_json(meta_path)
+        transcript = _read_json(_transcript_path(root, mid))
+        store = ActionStore(root / "actions" / "actions.json")
+        try:
+            utterance = relink_utterance(cand, transcript)
+            result = convert_candidate(cand, utterance=utterance, mentions=names if len(names) > 1 else None,
+                                       metadata=meta, reviewer_passed=False, human_fields=human_fields, store=store)
+        except (AnalysisValidationError, ConversionContextError, SchemaValidationError):
+            raise ApiError(422, "invalid_adoption", "이 후보를 Action으로 변환할 수 없습니다. 입력값을 확인해 주세요.") from None
+        created = [o.action_id for o in result.outcomes if o.kind == "created"]
+        if not created:
+            raise ApiError(409, "already_registered", "같은 담당자의 같은 업무가 이미 Action으로 등록되어 있습니다.")
+        adopted.append({"index": index, "action_ids": created, "adopted_by": actor,
+                        "adopted_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")})
+        _write_json_atomic(run_path, run)
+        if meta.pop("analysis_finalized", None) is not None:  # Action 목록이 바뀌었으니 다시 확정해야 한다
+            meta.pop("analysis_finalized_at", None)
+            _write_json_atomic(meta_path, meta)
+    return _build_result(mid, root)
 
 
 def get_result(meeting_id: str) -> AnalysisResult:
@@ -360,6 +529,7 @@ def _check_previous_ids(mid: str, ids, meetings: Path) -> list:
             raise ApiError(422, "invalid_previous_meeting", "현재 회의를 이전 회의로 지정할 수 없습니다.")
         if not (meetings / f"{pid}.meta.json").is_file():
             raise ApiError(404, "previous_meeting_not_found", "이전 회의를 찾을 수 없습니다.")
+        _require_fresh(meetings.parent, pid, "이전 회의의 화자 정보가 변경되어 재분석이 필요합니다. 먼저 이전 회의를 재분석해 주세요.")
         if pid not in out:
             out.append(pid)
     return out
@@ -388,6 +558,8 @@ def _followup_records(orch, store: ActionStore, root: Path) -> list:
             hist = store.get(o.action_id)["history"][-1]
             evidence = [{"timestamp": q["timestamp"], "speaker": q.get("speaker"),
                          "speaker_name": _confirmed_map(root, q.get("meeting_id") or "").get(q.get("speaker")),
+                         "speaker_display": (_profiles(root, q.get("meeting_id") or "").get(q.get("speaker")) or {}
+                                             ).get("display_name"),
                          "text": q["text"]}
                         for q in hist.get("evidence", [])]
         out.append({"action_id": o.action_id, "outcome": o.outcome, "from_status": o.from_status,
@@ -413,7 +585,8 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
     try:
         deps = _demo_dependencies(mid) if get_mode() == "demo" else _live_dependencies()
         metadata = json.loads(meta.read_text(encoding="utf-8"))
-        if _transcript_path(root, mid).is_file():
+        prepared = _transcript_path(root, mid).is_file()
+        if prepared:
             # STT 준비 단계를 거친 회의: 원본 transcript(speaker_N)를 그대로 쓰고, 사람이 확인한 매핑만 전달한다.
             # 확인하지 않은 화자는 미확인이다 (DEMO 고정 매핑도 쓰지 않는다).
             deps["speaker_map"] = metadata.get("speaker_map") or None
@@ -454,6 +627,8 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
         if result["analysis"] is not None:
             transcript = json.loads(Path(result["transcript"]).read_text(encoding="utf-8"))
             save_analysis(result["analysis"], transcript, root / "meetings")
+        if prepared:  # 화자 확인을 거친 회의만 stale 판단 대상 (DEMO 고정 매핑 경로는 사람이 확인한 값이 아니다)
+            run["speaker_map_used"] = confirmed_names(deps.get("speaker_map"))
         with open(run_path, "x", encoding="utf-8") as f:
             json.dump(run, f, ensure_ascii=False, indent=2)
         return _build_result(mid, root)
@@ -464,11 +639,62 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
 
 # ---------------------------------------------------------------- 화자 확인 (STT 준비 ↔ 분석 사이)
 
+def _suggestions_path(root: Path, mid: str) -> Path:
+    return root / "meetings" / f"{mid}.speaker-suggestions.json"
+
+
+def _load_suggestions(root: Path, mid: str) -> dict:
+    """저장된 AI 추천 {speaker_N: 추천}. 확정 매핑(speaker_map)과 별개의 파일이며 분석·완료 판단에 쓰이지 않는다."""
+    path = _suggestions_path(root, mid)
+    if not path.is_file():
+        return {}
+    try:
+        return {s["speaker_id"]: s for s in _read_json(path)["suggestions"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
 def _speaker_list(mid: str, root: Path, meta: dict) -> SpeakerList:
     transcript = _read_json(_transcript_path(root, mid))
     names = confirmed_names(meta.get("speaker_map"))
-    items = [SpeakerItem(**s, confirmed_name=names.get(s["speaker"])) for s in list_speakers(transcript)]
-    return SpeakerList(meeting_id=mid, speakers=items, confirmed="speaker_map" in meta)
+    suggestions = _load_suggestions(root, mid)
+    profiles = confirmed_profiles(meta.get("speaker_map"))
+    items = [SpeakerItem(**s, confirmed_name=names.get(s["speaker"]), confirmed_profile=profiles.get(s["speaker"]),
+                         suggestion=suggestions.get(s["speaker"]))
+             for s in list_speakers(transcript)]
+    analyzed = _run_path(root, mid).is_file() or (root / "meetings" / f"{mid}.analysis.json").is_file()
+    return SpeakerList(meeting_id=mid, speakers=items, confirmed="speaker_map" in meta,
+                       analyzed=analyzed, stale=_is_stale(root, mid))
+
+
+def _speaker_runner():
+    if get_mode() == "demo":
+        from .demo import demo_speaker_runner
+        return demo_speaker_runner
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise ApiError(503, "gemini_not_configured", "LIVE 모드에 필요한 Gemini API 키가 서버에 설정되어 있지 않습니다.")
+    from ..audio_pipeline import _gemini_json_runner
+    return _gemini_json_runner
+
+
+def suggest_speakers(meeting_id: str) -> SpeakerSuggestionList:
+    """Speaker Identification Agent로 화자를 1차 추천한다. 추천은 별도 파일에만 저장하며 speaker_map(확정)은 건드리지 않는다.
+    원본 transcript는 읽기만 한다. 다시 호출하면 이전 추천을 새 추천으로 교체한다."""
+    mid, root, _meta_path = _meeting_for_speakers(meeting_id, need_transcript=True)
+    transcript = _read_json(_transcript_path(root, mid))
+    runner = _speaker_runner()
+    try:
+        suggestions = identify_speakers(transcript, list_speakers(transcript), runner)
+    except SpeakerSuggestionError:
+        raise ApiError(502, "speaker_suggestion_invalid", "화자 추천 결과가 검증을 통과하지 못했습니다. 직접 입력해 주세요.") from None
+    except Exception:
+        log.exception("speaker suggestion failed")
+        raise ApiError(502, "speaker_suggestion_failed", "화자 추천에 실패했습니다. 직접 입력해 주세요.") from None
+    views = [{**s, "confidence_level": confidence_level(s["confidence"])} for s in suggestions]
+    _write_json_atomic(_suggestions_path(root, mid), {
+        "meeting_id": mid, "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "suggestions": views})
+    return SpeakerSuggestionList(meeting_id=mid, suggestions=views)
 
 
 def _meeting_for_speakers(meeting_id: str, *, need_transcript: bool):
@@ -512,24 +738,104 @@ def get_speakers(meeting_id: str) -> SpeakerList:
 
 
 def put_speaker_map(meeting_id: str, requested: dict) -> SpeakerList:
-    """사용자가 확인한 화자 이름을 회의 metadata(meta.json의 speaker_map)에 저장한다. 원본 transcript는 건드리지 않는다.
-    전체 교체 방식이며 분석 전에만 가능하다. 다른 회의의 매핑을 복사하거나 추측하지 않는다."""
+    """사람이 확인·수정한 화자 이름을 회의 metadata(meta.json의 speaker_map)에 저장한다. 원본 transcript는 건드리지 않는다.
+    전체 교체 방식이다. AI 추천(speaker_suggestions)은 사람이 이 API로 보낸 값만 확정이 된다.
+    분석 후에도 수정할 수 있으나 기존 분석은 stale이 되며, 사용자가 재분석(reanalyze)을 명시적으로 실행해야 한다.
+    다른 회의의 매핑을 복사하거나 추측하지 않는다."""
     mid, root, meta_path = _meeting_for_speakers(meeting_id, need_transcript=True)
-    if _run_path(root, mid).is_file() or (root / "meetings" / f"{mid}.analysis.json").is_file():
-        raise ApiError(409, "already_analyzed", "이미 분석된 회의의 화자 확인은 바꿀 수 없습니다.")
     with _running_lock:
         if mid in _running:
             raise ApiError(409, "analysis_in_progress", "이 회의는 분석이 진행 중입니다.")
     try:
-        mapping = validate_speaker_map(requested, _read_json(_transcript_path(root, mid)))
+        plain = {k: (v.model_dump() if hasattr(v, "model_dump") else v) for k, v in (requested or {}).items()}
+        mapping = validate_speaker_map(plain, _read_json(_transcript_path(root, mid)))
     except SpeakerMapError as e:
         raise ApiError(422, "invalid_speaker_map", str(e)) from None
     meta = _read_json(meta_path)
+    # 화자 identity(이름)가 바뀌면 이전 확정은 무효 (되돌려도 자동 복원하지 않는다).
+    # 부/과 같은 조직정보·표시명만 바뀐 경우는 표시 갱신일 뿐이라 확정을 유지한다.
+    if confirmed_names(meta.get("speaker_map")) != confirmed_names(mapping):
+        meta.pop("analysis_finalized", None)
+        meta.pop("analysis_finalized_at", None)
     meta["speaker_map"] = mapping
-    tmp = meta_path.with_suffix(f".json.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, meta_path)
+    _write_json_atomic(meta_path, meta)
     return _speaker_list(mid, root, meta)
+
+
+def finalize_analysis(meeting_id: str) -> AnalysisResult:
+    """사람이 분석 결과를 검토했음을 meta.json에 기록한다 (analysis_finalized / analysis_finalized_at).
+    Action 0건이어도 확정할 수 있다. Action·Reviewer 판정·완료 상태는 건드리지 않는다. 이미 확정이면 시각을 유지한다(멱등).
+    stale(화자 변경 후 미재분석) 분석은 확정할 수 없다."""
+    mid, root, meta_path, analysis_path, review_path = _paths(meeting_id)
+    if not meta_path.is_file():
+        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
+    if not (_run_path(root, mid).is_file() or (analysis_path.is_file() and review_path.is_file())):
+        raise ApiError(409, "not_analyzed", "아직 분석되지 않은 회의입니다.")
+    with _running_lock:
+        if mid in _running:
+            raise ApiError(409, "analysis_in_progress", "이 회의는 분석이 진행 중입니다.")
+    _require_fresh(root, mid, "화자 정보가 변경되어 재분석이 필요한 결과는 확정할 수 없습니다. 먼저 변경된 화자로 다시 분석해 주세요.")
+    meta = _read_json(meta_path)
+    if meta.get("analysis_finalized") is not True:
+        meta["analysis_finalized"] = True
+        meta["analysis_finalized_at"] = datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds")
+        _write_json_atomic(meta_path, meta)
+    return _build_result(mid, root)
+
+
+# ---------------------------------------------------------------- 분석 후 화자 변경 → 재분석 (사용자가 명시적으로 실행)
+
+_reanalyze_lock = threading.Lock()
+_DERIVED_SUFFIXES = (".analysis.json", ".review.json", ".run.json", ".followups.json")
+_REANALYSIS_BLOCKED = ApiError(
+    409, "reanalysis_blocked",
+    "이 회의의 분석 결과가 다른 회의 또는 사람의 검토에 이미 사용되어 자동으로 다시 분석할 수 없습니다. 기존 결과는 변경하지 않았습니다.")
+
+
+def reanalyze_meeting(meeting_id: str) -> AnalysisResult:
+    """화자가 바뀌어 stale이 된 분석을 사용자가 명시적으로 다시 실행한다 (자동 재분석 없음).
+    원본 audio·transcript·STT 라벨은 건드리지 않고, 이 회의의 파생 산출물(분석·검증·실행 기록·이 회의 원천 Action)만 교체한다.
+    fail-closed: 다른 회의가 이 결과를 참조했거나 사람이 이 회의 Action을 검토했다면 아무것도 지우지 않고 거부한다.
+    재분석이 실패하면 기존 산출물을 복원한다."""
+    mid, root, meta_path, analysis_path, review_path = _paths(meeting_id)
+    if not meta_path.is_file():
+        raise ApiError(404, "meeting_not_found", "회의를 찾을 수 없습니다.")
+    run_path = _run_path(root, mid)
+    if not run_path.is_file():
+        raise ApiError(409, "not_analyzed", "아직 분석되지 않은 회의입니다.")
+    if not _is_stale(root, mid):
+        raise ApiError(409, "not_stale", "화자 변경이 없어 재분석이 필요하지 않습니다.")
+    with _reanalyze_lock:
+        with _running_lock:
+            if mid in _running:
+                raise ApiError(409, "analysis_in_progress", "이 회의는 분석이 진행 중입니다.")
+        meetings = root / "meetings"
+        actions_path = root / "actions" / "actions.json"
+        actions = ActionStore(actions_path)._read() if actions_path.is_file() else []
+        own = _assert_unreferenced(mid, meetings, actions, _REANALYSIS_BLOCKED)
+        if _read_json(run_path).get("adopted_candidates"):  # 사람이 채택한 Action도 재분석으로 사라지게 하지 않는다
+            raise _REANALYSIS_BLOCKED
+        for a in actions:  # 사람이 검토한 Action은 재분석으로 사라지게 하지 않는다
+            if a.get("action_id") in own and (a.get("approved_by_human") or len(a.get("history") or []) > 1):
+                raise _REANALYSIS_BLOCKED
+        previous = _read_json(run_path).get("previous_meeting_ids", [])
+
+        backup = {p: p.read_bytes() for p in [meetings / f"{mid}{s}" for s in _DERIVED_SUFFIXES] if p.is_file()}
+        actions_backup = actions_path.read_bytes() if actions_path.is_file() else None
+        for p in backup:
+            p.unlink()
+        if own:
+            ActionStore(actions_path).remove_by_meeting(mid)
+        try:
+            return analyze_meeting(mid, previous)
+        except BaseException:
+            for p in [meetings / f"{mid}{s}" for s in _DERIVED_SUFFIXES]:
+                p.unlink(missing_ok=True)
+            for p, data in backup.items():
+                p.write_bytes(data)
+            if actions_backup is not None:
+                actions_path.write_bytes(actions_backup)
+            raise
 
 
 # ---------------------------------------------------------------- Human Review (review 도메인을 호출만 한다)
@@ -556,7 +862,25 @@ def _review(fn) -> ActionView:
     return ActionView(**_action_view(action, root, {}))
 
 
+def _guard_review_fresh(action_id: str, meeting_id) -> None:
+    """화자 정보가 바뀐 stale 분석에서 나온 결과(Action 원천 회의·근거 회의)는 최신으로 취급해 승인하지 않는다."""
+    root = get_data_root()
+    ids = {meeting_id}
+    try:
+        ids.add(ActionStore(root / "actions" / "actions.json").get(action_id)["meeting_id"])
+    except KeyError:
+        pass
+    for m in ids:
+        if isinstance(m, str):
+            try:
+                _require_fresh(root, safe_meeting_id(m), "화자 정보가 변경되어 재분석이 필요한 결과입니다. 재분석 후 검토해 주세요.")
+            except ValueError:
+                pass
+
+
 def review(action_id: str, choice, actor_name, meeting_id=None, timestamp=None) -> ActionView:
+    _guard_review_fresh(action_id, meeting_id)
+
     def run(store):
         review_action(store, action_id, choice, actor_name=actor_name, meeting_id=meeting_id, timestamp=timestamp)
         return action_id

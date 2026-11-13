@@ -13,10 +13,12 @@ interface Props {
   /** 서버가 삭제 성공을 돌려준 뒤에만 호출된다 (선택 정리·목록 refresh는 부모 담당). */
   onDeleted: (id: string) => void
   disabled: boolean
+  /** 방금 확정한 회의. 강조 표시만 하며 자동으로 선택하지 않는다 (이전 회의는 사용자가 명시적으로 고른다). */
+  highlightId?: string | null
 }
 
 /** 이전 회의는 서버 목록(GET /api/meetings)에서 사용자가 명시적으로 고른다 (자동 추론 없음). 선택이 없으면 API에는 [] 가 전달된다. */
-export default function PreviousMeetings({ load, selected, onChange, onDeleted, disabled }: Props) {
+export default function PreviousMeetings({ load, selected, onChange, onDeleted, disabled, highlightId }: Props) {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const toggle = (id: string) =>
@@ -40,7 +42,7 @@ export default function PreviousMeetings({ load, selected, onChange, onDeleted, 
   }
 
   return (
-    <section className="panel prev-panel" aria-label="지난 회의 선택">
+    <section id="prev-meetings" className="panel prev-panel" aria-label="지난 회의 선택">
       <h2 className="panel-title">지난 회의 선택</h2>
       <p className="muted small">
         지난 회의를 선택하면 그 회의에서 지시한 일이 이번 회의에서 이행됐는지 함께 점검합니다. 잘못 등록한 회의는 삭제할 수 있습니다.
@@ -56,10 +58,10 @@ export default function PreviousMeetings({ load, selected, onChange, onDeleted, 
           </label>
         </li>
         {meetings.map((m) => {
-          // 분석되지 않았거나 Action이 없는 회의는 이행점검할 대상이 없다 (선택 불가, 삭제는 가능).
-          const usable = m.analysis_status === 'analyzed' && m.action_count > 0
+          // 분석된 회의는 선택할 수 있다 (Action 0건이어도 지난 회의 맥락·브리핑에 쓸 수 있다). 미분석 회의만 선택 불가, 삭제는 가능.
+          const usable = m.analysis_status === 'analyzed'
           return (
-            <li key={m.meeting_id} className="prev-row">
+            <li key={m.meeting_id} className={`prev-row${m.meeting_id === highlightId ? ' prev-highlight' : ''}`}>
               <label className="prev-item" style={usable ? undefined : { opacity: 0.55, cursor: 'not-allowed' }}>
                 <input
                   type="checkbox"
@@ -70,8 +72,13 @@ export default function PreviousMeetings({ load, selected, onChange, onDeleted, 
                 <span>
                   <span className="muted small">{m.meeting_date.replaceAll('-', '.')}</span> <strong>{m.title}</strong>{' '}
                   <span className="muted small">
-                    {m.analysis_status === 'analyzed' ? `분석 완료 · Action ${m.action_count}건` : '미분석'}
+                    {m.analysis_status === 'analyzed' ? `분석 완료 · Action ${m.action_count}건${m.action_count === 0 ? ' (이행점검할 Action 없음)' : ''}` : '미분석'}
                   </span>
+                  {m.meeting_id === highlightId && (
+                    <span className="prev-tag">
+                      방금 확정한 회의{' · 이전 회의로 선택하려면 체크하세요'}
+                    </span>
+                  )}
                 </span>
               </label>
               <button

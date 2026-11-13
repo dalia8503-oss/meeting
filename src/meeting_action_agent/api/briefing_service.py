@@ -21,7 +21,7 @@ from ..ingest import safe_meeting_id
 from ..tts import TtsError, WindowsSapiTts
 from .mode import get_data_root
 from .schemas import BriefingAudio, BriefingResponse
-from .service import ApiError
+from .service import ApiError, _require_fresh
 
 log = logging.getLogger(__name__)
 
@@ -120,6 +120,7 @@ def create_briefing(previous_meeting_id: str, current_date: str, regenerate: boo
         raise ApiError(422, "invalid_current_date", "current_date는 YYYY-MM-DD 형식이어야 합니다.") from None
 
     root = get_data_root()
+    _require_fresh(root, mid, "직전 회의의 화자 정보가 변경되어 재분석이 필요합니다. 재분석 후 브리핑해 주세요.")
     briefing_id = make_briefing_id(mid, current_date)
     with _lock_for(briefing_id):  # 같은 브리핑의 동시/중복 요청은 한 번만 생성한다
         rec = None if regenerate else _load_record(root, briefing_id)

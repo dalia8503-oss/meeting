@@ -1,6 +1,8 @@
 """T-LIVE-SPK 순수 함수: 화자 목록·대표 발언·speaker_map 검증."""
 import pytest
 
+from meeting_action_agent.speakers import build_profile as P
+
 from meeting_action_agent.speakers import (
     SpeakerMapError, confirmed_names, list_speakers, speaker_context_text, validate_speaker_map)
 
@@ -42,7 +44,7 @@ def test_list_speakers_does_not_modify_transcript():
 
 # 3~5. 검증: 유효 저장 형태 / 존재하지 않는 speaker 거부 / 빈 이름 거부 / null=미확인
 def test_validate_ok_and_unconfirmed():
-    assert validate_speaker_map({"speaker_1": " 팀장 ", "speaker_2": None}, TR) == {"speaker_1": {"name": "팀장"}}
+    assert validate_speaker_map({"speaker_1": " 팀장 ", "speaker_2": None}, TR) == {"speaker_1": P("팀장")}
     assert validate_speaker_map({}, TR) == {}
 
 
@@ -59,10 +61,40 @@ def test_validate_empty_name_rejected(bad):
 
 def test_same_name_for_several_speakers_allowed():
     assert validate_speaker_map({"speaker_1": "김대리", "speaker_2": "김대리"}, TR) == {
-        "speaker_1": {"name": "김대리"}, "speaker_2": {"name": "김대리"}}
+        "speaker_1": P("김대리"), "speaker_2": P("김대리")}
 
 
 def test_confirmed_names_forms():
     assert confirmed_names({"speaker_1": {"name": "팀장"}, "speaker_2": "김대리", "speaker_3": {"name": " "},
                             "speaker_4": None}) == {"speaker_1": "팀장", "speaker_2": "김대리"}
     assert confirmed_names(None) == {} and speaker_context_text(None) == "" and speaker_context_text({}) == ""
+
+
+# ---- 조직정보(부/과) 구조화 프로필
+def test_build_profile_structured_and_display_name():
+    p = P("이과장")
+    assert p == {"name": "이과장", "display_name": "이과장", "confirmed_by_human": True}
+    from meeting_action_agent.speakers import build_profile
+    q = build_profile("이과장", " 1부 ", "3과")
+    assert q == {"name": "이과장", "department": "1부", "section": "3과", "display_name": "1부 3과 이과장",
+                 "confirmed_by_human": True}
+    assert build_profile("이과장", None, "3과")["display_name"] == "3과 이과장"
+
+
+def test_validate_accepts_object_and_rejects_org_without_name():
+    out = validate_speaker_map({"speaker_1": {"name": "팀장", "department": "1부", "section": ""}}, TR)
+    assert out["speaker_1"]["display_name"] == "1부 팀장" and "section" not in out["speaker_1"]
+    with pytest.raises(SpeakerMapError):
+        validate_speaker_map({"speaker_1": {"name": " ", "department": "1부"}}, TR)
+
+
+def test_confirmed_names_ignores_org_and_legacy_profiles_still_work():
+    from meeting_action_agent.speakers import confirmed_profiles, display_for_person
+    m = {"speaker_1": {"name": "이과장", "department": "1부", "section": "3과"}, "speaker_2": {"name": "김대리"}}
+    assert confirmed_names(m) == {"speaker_1": "이과장", "speaker_2": "김대리"}  # identity는 name만
+    prof = confirmed_profiles(m)
+    assert prof["speaker_1"]["display_name"] == "1부 3과 이과장" and prof["speaker_2"]["display_name"] == "김대리"
+    assert display_for_person("이 과장", prof) == "1부 3과 이과장"
+    assert display_for_person("박대리", prof) is None  # 확인되지 않은 이름은 추측하지 않는다
+    dup = {"speaker_1": {"name": "이과장", "department": "1부"}, "speaker_2": {"name": "이과장", "department": "2부"}}
+    assert display_for_person("이과장", confirmed_profiles(dup)) is None  # 모호하면 표시하지 않는다

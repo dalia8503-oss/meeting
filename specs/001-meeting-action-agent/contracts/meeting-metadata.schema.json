@@ -10,6 +10,8 @@
     "meeting_id": { "$ref": "common.schema.json#/$defs/MeetingId" },
     "meeting_date": { "$ref": "common.schema.json#/$defs/Date" },
     "title": { "type": "string" },
+    "analysis_finalized": { "description": "사람이 회의 분석 결과를 확정했는가 (화면 흐름 표시 전용).", "type": "boolean" },
+    "analysis_finalized_at": { "description": "확정 시각 (ISO 8601).", "type": "string" },
     "participants": {
       "description": "참석자 목록. 담당자 이름 대조용 (동명이인 판단, 참석자외 플래그).",
       "type": "array",
@@ -25,7 +27,11 @@
         "required": ["name"],
         "properties": {
           "name": { "type": "string", "minLength": 1 },
-          "position": { "type": "string" }
+          "position": { "type": "string" },
+          "department": { "type": "string", "minLength": 1 },
+          "section": { "type": "string", "minLength": 1 },
+          "display_name": { "type": "string", "minLength": 1 },
+          "confirmed_by_human": { "type": "boolean" }
         }
       }
     }

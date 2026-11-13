@@ -1,0 +1,9 @@
+.git
+runtime
+frontend
+tests
+node_modules
+__pycache__
+*.mp3
+.env
+smoke_results

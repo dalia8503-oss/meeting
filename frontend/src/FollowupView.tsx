@@ -120,7 +120,7 @@ function EvidenceQuote({ e }: { e: Evidence }) {
         {e.speaker && (
           <span className="ev-speaker">
             {e.speaker}
-            {e.speaker_name ? ` · ${e.speaker_name}` : ''}
+            {e.speaker_display ?? e.speaker_name ? ` · ${e.speaker_display ?? e.speaker_name}` : ''}
           </span>
         )}
       </div>
@@ -190,7 +190,7 @@ function FollowupCard({ r, action, meetingId, actor, onUpdated, busy, setBusy }:
     <li className="fu-card">
       <div className="fu-head">
         <strong className="fu-id">{r.action_id}</strong>
-        <span className="fu-assignee">{action?.assignee || '담당자 미지정'}</span>
+        <span className="fu-assignee">{action ? (action.assignee_display ?? action.assignee) || '담당자 미지정' : '담당자 미지정'}</span>
         <span className="fu-task">{action?.task ?? ''}</span>
       </div>
 

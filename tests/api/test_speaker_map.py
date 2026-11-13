@@ -4,6 +4,8 @@ LIVE 실패 재현 조건: STT는 speaker_N 라벨만 주고, 완료 발언("수
 """
 import json
 
+from meeting_action_agent.speakers import build_profile as P
+
 import pytest
 
 from meeting_action_agent.api import service
@@ -66,7 +68,7 @@ def test_put_speaker_map_saves_in_meeting_metadata(client, base, two):  # noqa: 
     r = client.put(f"/api/meetings/{mid2}/speaker-map",
                    json={"speaker_map": {"speaker_1": "팀장", "speaker_2": "김대리", "speaker_3": None}})
     assert r.status_code == 200, r.text
-    assert _meta(base, mid2)["speaker_map"] == {"speaker_1": {"name": "팀장"}, "speaker_2": {"name": "김대리"}}
+    assert _meta(base, mid2)["speaker_map"] == {"speaker_1": P("팀장"), "speaker_2": P("김대리")}
     b = client.get(f"/api/meetings/{mid2}/speakers").json()
     assert b["confirmed"] is True
     assert [s["confirmed_name"] for s in b["speakers"]] == ["팀장", "김대리", None]  # 미확인은 null
@@ -127,6 +129,7 @@ def test_correct_speaker_map_enables_completion_candidate(client, base, two):  #
     assert [(f["action_id"], f["outcome"], f["to_status"], f["reviewer_verdict"]) for f in fr] == \
         [("A-001", "applied", "완료 후보", "PASS")]
     assert fr[0]["evidence"] == [{"timestamp": "00:00:10", "speaker": "speaker_2", "speaker_name": "김대리",
+                                  "speaker_display": "김대리",
                                   "text": DONE_TEXT}]
     a1 = next(a for a in store_actions(base) if a["action_id"] == "A-001")
     assert a1["status"] == "완료 후보" and a1["approved_by_human"] is None  # Agent는 후보까지만. 완료는 Human Review
@@ -168,7 +171,7 @@ def test_speaker_map_is_meeting_scoped_and_never_reused(client, base, two, monke
     assert r.status_code == 200
     assert all(s["confirmed_name"] is None for s in r.json()["speakers"]) and r.json()["confirmed"] is False
     assert "speaker_map" not in _meta(base, mid3)
-    assert _meta(base, mid2)["speaker_map"]["speaker_2"] == {"name": "김대리"}  # 2차 회의 매핑은 그대로
+    assert _meta(base, mid2)["speaker_map"]["speaker_2"] == P("김대리")  # 2차 회의 매핑은 그대로
     # 3차 회의를 확인 없이 분석하면 speaker_2는 미확인 → 완료 후보 금지
     a = next(x for x in store_actions(base) if x["action_id"] == "A-001")
     assert a["status"] == "신규"
@@ -176,13 +179,13 @@ def test_speaker_map_is_meeting_scoped_and_never_reused(client, base, two, monke
     assert b["followup_results"] == [] and len(b["followup_invalid"]) == 1
 
 
-# 확인은 분석 전에만, 분석 후에는 변경 불가 (이미 사용된 근거를 바꾸지 않는다)
-def test_speaker_map_locked_after_analysis(client, two):
+# 분석 후에도 화자 수정은 저장되지만 기존 분석은 stale이 된다 (자세한 동작은 test_speaker_suggestions.py)
+def test_speaker_map_editable_after_analysis_marks_stale(client, two):
     mid1, mid2 = two
     client.post(f"/api/meetings/{mid2}/transcribe")
     assert _analyze(client, mid2, mid1).status_code == 200
     r = client.put(f"/api/meetings/{mid2}/speaker-map", json={"speaker_map": {"speaker_2": "김대리"}})
-    assert r.status_code == 409 and r.json()["detail"]["code"] == "already_analyzed"
+    assert r.status_code == 200 and r.json()["analyzed"] is True and r.json()["stale"] is True
 
 
 # 다시 저장하면 전체 교체 (사용자가 정정 가능)
@@ -191,7 +194,7 @@ def test_speaker_map_replace_before_analysis(client, base, two):  # noqa: F811
     client.post(f"/api/meetings/{mid2}/transcribe")
     client.put(f"/api/meetings/{mid2}/speaker-map", json={"speaker_map": {"speaker_2": "박대리"}})
     client.put(f"/api/meetings/{mid2}/speaker-map", json={"speaker_map": {"speaker_2": "김대리"}})
-    assert _meta(base, mid2)["speaker_map"] == {"speaker_2": {"name": "김대리"}}
+    assert _meta(base, mid2)["speaker_map"] == {"speaker_2": P("김대리")}
 
 
 # 17. 기존 DEMO regression: transcribe 없이 analyze (기존 호환 경로)는 그대로

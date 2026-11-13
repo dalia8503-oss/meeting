@@ -61,6 +61,7 @@ def convert_candidate(
     mentions: Optional[list] = None,
     metadata: Optional[Mapping] = None,
     reviewer_passed: bool = True,
+    human_fields: Optional[Mapping] = None,
     store,
 ) -> ConversionResult:
     """ActionCandidate 한 건을 담당자별 Action 생성 / 중복 근거 추가 / remention 연결로 변환한다."""
@@ -114,7 +115,8 @@ def convert_candidate(
             "timestamp": utterance["timestamp"],
             "status": status,
             "flags": flags,
-            "field_source": {},
+            # 사람이 보강·수정한 필드는 녹취 근거가 없으므로 '사람 보강'으로 구분해 기록한다 (SPEC 5.2). 최초 생성 주체는 여전히 Agent.
+            "field_source": {k: "사람 보강" for k in (human_fields or {})},
             "approved_by_human": None,
             "history": [{"at": _now(), "actor": "Agent", "from_status": None, "to_status": status}],
         }

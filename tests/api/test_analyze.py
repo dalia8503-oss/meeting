@@ -42,7 +42,7 @@ def test_demo_analyze_returns_actions_without_external_call(client, base):
     a = b["actions"][0]
     assert (a["action_id"], a["status"], a["assignee"], a["due_date"], a["due_date_normalized"]) == \
         ("A-001", "신규", "김대리", "금요일까지", "2026-11-13")
-    assert a["evidence"] == {"timestamp": "00:00:12", "speaker": "팀장", "speaker_name": None, "text": "김대리, 금요일까지 도면 수정해서 공유해주세요."}
+    assert a["evidence"] == {"timestamp": "00:00:12", "speaker": "팀장", "speaker_name": None, "speaker_display": None, "text": "김대리, 금요일까지 도면 수정해서 공유해주세요."}
     assert b["open_issues"] and b["needs_confirmation"] and b["summary"]
 
 

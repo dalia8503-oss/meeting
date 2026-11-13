@@ -5,6 +5,7 @@
 업로드한 파일의 실제 음성 내용은 분석하지 않는다 (DEMO는 고정 시나리오다).
 """
 import json
+import re
 from pathlib import Path
 
 from ..stt.gemini_stt import GeminiSttProvider
@@ -63,3 +64,24 @@ def demo_followup_runner(prompt: str) -> str:
 def demo_followup_reviewer(prompt: str) -> dict:
     ref = _input_after(prompt, "## INPUT\n")["followup_result"]["action_id"]
     return {"target": {"type": "followup", "ref": ref}, "verdict": "PASS", "reasons": [], "attempt": 0}
+
+
+_VOCATIVE = re.compile(r"(?:(\d+\s?부)\s?)?(?:(\d+\s?과)\s?)?([가-힣]\s?[가-힣]{0,2}\s?(?:부장|차장|과장|대리|사원|주임|팀장|반장|소장))\s?(?:님)?\s?[,،]")
+
+
+def demo_speaker_runner(prompt: str) -> str:
+    """DEMO 화자 추천: 직접 호명 직후 다른 화자가 응답하면 그 화자를 호명된 이름으로 추천한다 (외부 호출 없음).
+    그 외에는 근거 없음(null). 추천은 미확정이며 사람이 확인해야 한다."""
+    transcript = _input_after(prompt, "## INPUT\n")["transcript"]
+    out: dict = {u["speaker"]: {"suggested_name": None, "confidence": 0.0, "evidence": [], "needs_confirmation": True}
+                 for u in transcript}
+    for prev, nxt in zip(transcript, transcript[1:]):
+        m = _VOCATIVE.search(prev["text"])
+        if m and nxt["speaker"] != prev["speaker"] and out[nxt["speaker"]]["suggested_name"] is None:
+            name = re.sub(r"\s+", "", m.group(3))
+            dept = re.sub(r"\s+", "", m.group(1)) if m.group(1) else None
+            sect = re.sub(r"\s+", "", m.group(2)) if m.group(2) else None
+            out[nxt["speaker"]] = {
+                "suggested_name": name, "department": dept, "section": sect, "confidence": 0.9, "needs_confirmation": False,
+                "evidence": [f"{prev['speaker']}가 '{name}'을(를) 직접 호명한 직후({nxt['timestamp']}) 이 화자가 응답함"]}
+    return json.dumps(out, ensure_ascii=False)

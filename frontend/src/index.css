@@ -202,3 +202,79 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .btn-secondary { padding: 6px 14px; background: var(--surface); color: var(--primary); border: 1px solid var(--primary); border-radius: 6px; font-weight: 600; cursor: pointer; }
 .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- AI 화자 추천 / 분석 후 화자 수정 / stale 안내 ---- */
+.speaker-state { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.speaker-state-pending { background: var(--st-confirm); color: var(--st-confirm-fg); }
+.speaker-state-ok { background: var(--st-cand); color: var(--st-cand-fg); }
+.speaker-ai { background: var(--surface); border-left: 3px solid var(--primary); padding: 4px 10px; }
+.speaker-evidence { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+.conf { margin-left: 6px; font-weight: 600; }
+.conf-high { color: var(--st-cand-fg); }
+.conf-medium { color: var(--st-doing-fg); }
+.conf-low { color: var(--danger); }
+.transcript-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.transcript-text { overflow-wrap: anywhere; }
+.speaker-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-top: 4px; font-size: 13px; }
+.stale-banner { border: 2px solid var(--st-doing-fg); background: var(--st-doing); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.stale-banner p { margin: 0; }
+.stale-result { opacity: 0.55; pointer-events: none; user-select: text; }
+
+.speaker-org { display: flex; flex-wrap: wrap; gap: 12px; }
+.speaker-org .speaker-input { flex: 1 1 140px; }
+
+/* 분석 완료 후 "다음 단계": ACTION LIST(2px blue)보다 약하게 — 연한 배경 + 상단 구분선 */
+.next-steps { margin-top: 16px; background: var(--bg); border-top: 2px solid var(--border); }
+.next-title { margin: 0 0 6px; font-size: 1rem; }
+.next-desc { margin: 0 0 6px; }
+.next-stale { margin: 6px 0; color: var(--st-doing-fg); }
+.next-edit { margin: 8px 0; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.next-edit p { margin: 0 0 4px; }
+.next-edit-list { margin: 4px 0 0; padding-left: 20px; }
+.next-buttons { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; }
+.next-done { background: var(--st-cand); border-top-color: var(--st-cand-fg); }
+.next-check { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 50%; background: var(--st-cand-fg); color: #fff; font-size: 14px; margin-right: 4px; }
+.next-choices { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 8px; }
+.next-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.empty-main { margin: 0 0 4px; }
+.empty .small { margin: 4px 0; }
+.prev-highlight .prev-item { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.prev-tag { display: block; margin-top: 2px; font-size: 12px; color: var(--primary); font-weight: 600; }
+@media (max-width: 600px) {
+  .next-buttons { flex-direction: column-reverse; align-items: stretch; }
+  .next-choices { flex-direction: column; align-items: stretch; }
+  .next-buttons button, .next-choice button { width: 100%; }
+}
+
+.roster-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.roster-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.roster-item .speaker-edit { flex-basis: 100%; }
+
+/* ---- 회의록 (날짜별 목록 + 읽기 전용 상세) ---- */
+.tabs { display: flex; gap: 4px; margin: 0 0 14px; border-bottom: 2px solid var(--border); }
+.tab { padding: 8px 18px; background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -2px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.tab-on { color: var(--primary); border-bottom-color: var(--primary); }
+.minutes { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+.minutes-list { position: sticky; top: 8px; max-height: calc(100vh - 24px); overflow-y: auto; }
+.minutes-month > summary { cursor: pointer; padding: 6px 0; }
+.minutes-day { margin: 6px 0 10px 6px; }
+.minutes-date { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.minutes-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.minutes-item { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.minutes-item:disabled { opacity: 0.55; cursor: not-allowed; }
+.minutes-item-on { border-color: var(--primary); background: var(--primary-soft); }
+.minutes-detail { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 800px) {
+  .minutes { grid-template-columns: 1fr; }
+  .minutes-list { position: static; max-height: none; }
+}
+
+/* ---- Reviewer 제외 후보 채택 ---- */
+.rejected-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.rejected-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.rejected-adopted { color: var(--st-cand-fg); font-weight: 600; }
+.adopt-open { align-self: flex-start; }
+.adopt-form { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.adopt-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.adopt-form p { margin: 0; }
+.adopt-buttons { display: flex; justify-content: flex-end; gap: 12px; align-items: center; }
