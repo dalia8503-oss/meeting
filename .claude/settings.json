@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -c \"import datetime; open('.claude/hook-check.log','a',encoding='utf-8').write('Stop hook fired ' + datetime.datetime.now().isoformat(timespec='seconds') + chr(10))\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

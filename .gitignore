@@ -6,3 +6,7 @@ smoke_results/
 node_modules/
 dist/
 runtime/
+
+# 로컬 임시/확인용 파일
+.claude/hook-check.log
+temp_turn_*.mp3
