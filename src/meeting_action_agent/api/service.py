@@ -595,7 +595,8 @@ def analyze_meeting(meeting_id: str, previous_meeting_ids=None) -> AnalysisResul
                 None, meeting_id=mid, meeting_date=metadata["meeting_date"], root=root,
                 store_path=root / "actions" / "actions.json", title=metadata.get("title"),
                 previous_meeting_ids=previous, **deps)
-        except (SttError, TranscriptError):
+        except (SttError, TranscriptError) as e:
+            log.warning("STT 실패(%s): %s", mid, e)
             raise ApiError(502, "stt_failed", "음성 변환(STT)에 실패했습니다. 잠시 후 다시 시도해 주세요.") from None
         except AnalysisValidationError:
             raise ApiError(502, "analysis_invalid", "회의 분석 결과가 검증을 통과하지 못했습니다. 다시 시도해 주세요.") from None
@@ -720,7 +721,8 @@ def transcribe_meeting(meeting_id: str) -> SpeakerList:
                 prepare_transcript(meeting_id=mid, root=root, provider=deps["provider"])
             except FileExistsError:
                 pass  # 동시 요청이 먼저 저장함 — 원본은 덮어쓰지 않는다
-            except (SttError, TranscriptError):
+            except (SttError, TranscriptError) as e:
+                log.warning("STT 실패(%s): %s", mid, e)  # 사용자에게는 원인을 숨기고 서버 로그에만 남긴다 (키·경로는 메시지에 없다)
                 raise ApiError(502, "stt_failed", "음성 변환(STT)에 실패했습니다. 잠시 후 다시 시도해 주세요.") from None
             except RuntimeError as e:
                 if "해시" in str(e):
