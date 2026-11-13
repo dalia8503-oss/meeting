@@ -17,6 +17,7 @@ from meeting_action_agent.stt.base import SUPPORTED_AUDIO_MIME, SttError
 
 MAX_INLINE_BYTES = 18 * 1024 * 1024  # inline 요청 한도(약 20MB)에 여유를 둔다
 DEFAULT_TIMEOUT_SEC = 180
+RETRYABLE_CODES = (503, 504)
 
 STT_PROMPT = """첨부된 회의 녹음을 한국어로 받아 적어라. 너의 역할은 전사(받아쓰기)뿐이다.
 
@@ -87,7 +88,7 @@ def _gemini_call(audio: bytes, mime: str, prompt: str) -> str:
         response_mime_type="application/json",
         response_json_schema=SEGMENTS_RESPONSE_SCHEMA,
     )
-    for attempt in range(3):  # 일시적 과부하(503)만 재시도
+    for attempt in range(3):  # 일시적 서버 오류(503 과부하, 504 Gemini 쪽 처리 시간 초과)만 재시도
         try:
             response = client.models.generate_content(
                 model=model,
@@ -96,7 +97,7 @@ def _gemini_call(audio: bytes, mime: str, prompt: str) -> str:
             )
             break
         except errors.ServerError as e:
-            if e.code != 503 or attempt == 2:
+            if e.code not in RETRYABLE_CODES or attempt == 2:
                 raise
             time.sleep(5 * (attempt + 1))
     if response.text is None:
